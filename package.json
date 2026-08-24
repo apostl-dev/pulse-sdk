@@ -1,0 +1,54 @@
+{
+  "name": "@apostldev/pulse-sdk",
+  "version": "0.1.0",
+  "description": "Privacy-safe server-side analytics for AI agent traffic",
+  "license": "MIT",
+  "author": "Apostl <hello@apostl.dev>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apostl-dev/pulse-sdk.git"
+  },
+  "homepage": "https://platform.apostl.dev",
+  "bugs": "https://github.com/apostl-dev/pulse-sdk/issues",
+  "keywords": ["ai-agents", "analytics", "server", "privacy", "observability"],
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    },
+    "./express": {
+      "types": "./dist/express.d.ts",
+      "import": "./dist/express.js",
+      "require": "./dist/express.cjs"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "import": "./dist/next.js",
+      "require": "./dist/next.cjs"
+    }
+  },
+  "files": ["dist", "README.md", "LICENSE"],
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsup src/index.ts src/express.ts src/next.ts --format esm,cjs --dts --clean --target node20",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test test/*.test.ts",
+    "test:load": "node --import tsx --test test/load.test.ts",
+    "prepack": "npm run build && npm run typecheck && npm test"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.8.3"
+  }
+}
