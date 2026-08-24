@@ -6,10 +6,10 @@
   "author": "Apostl <hello@apostl.dev>",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/SwiftAdviser/pulse-sdk.git"
+    "url": "git+https://github.com/apostl-dev/pulse-sdk.git"
   },
   "homepage": "https://platform.apostl.dev",
-  "bugs": "https://github.com/SwiftAdviser/pulse-sdk/issues",
+  "bugs": "https://github.com/apostl-dev/pulse-sdk/issues",
   "keywords": ["ai-agents", "analytics", "server", "privacy", "observability"],
   "type": "module",
   "main": "./dist/index.cjs",
