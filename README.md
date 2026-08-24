@@ -16,7 +16,7 @@ npm install @apostldev/pulse-sdk
 import { createPulse } from '@apostldev/pulse-sdk';
 
 const pulse = createPulse({
-  endpoint: 'https://ingest.apostl.dev',
+  endpoint: 'https://platform.apostl.dev',
   writeKey: process.env.APOSTL_PULSE_WRITE_KEY,
   identitySecret: process.env.APOSTL_PULSE_IDENTITY_SECRET,
   service: 'docs',
