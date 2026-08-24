@@ -7,8 +7,10 @@ Pulse classifies request headers locally, turns coarse network context into an h
 ## Install
 
 ```sh
-npm install @apostldev/pulse-sdk
+npm install https://platform.apostl.dev/sdk/apostldev-pulse-sdk-0.1.0.tgz
 ```
+
+The package is also available as complete [MIT-licensed source](https://github.com/apostl-dev/pulse-sdk). The canonical npm registry name is `@apostldev/pulse-sdk`; registry publication is pending publisher activation, so the HTTPS tarball above is the verified installation path for `0.1.0`.
 
 ## Fetch / Node
 
@@ -16,7 +18,7 @@ npm install @apostldev/pulse-sdk
 import { createPulse } from '@apostldev/pulse-sdk';
 
 const pulse = createPulse({
-  endpoint: 'https://platform.apostl.dev',
+  endpoint: 'https://ingest.apostl.dev',
   writeKey: process.env.APOSTL_PULSE_WRITE_KEY,
   identitySecret: process.env.APOSTL_PULSE_IDENTITY_SECRET,
   service: 'docs',
