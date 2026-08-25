@@ -7,8 +7,7 @@ test('accepts and flushes a 250 events-per-second envelope without loss', async 
   const batchSizes: number[] = [];
   const pulse = createPulse({
     endpoint: 'https://ingest.example.test',
-    writeKey: `pulse_wk_${'w'.repeat(48)}`,
-    identitySecret: `pulse_is_${'i'.repeat(48)}`,
+    apiKey: `pulse_api_${'w'.repeat(48)}`,
     service: 'load-test',
     environment: 'test',
     flushIntervalMs: 0,

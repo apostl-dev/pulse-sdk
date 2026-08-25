@@ -1,15 +1,44 @@
 import assert from 'node:assert/strict';
-import { createHmac } from 'node:crypto';
 import test from 'node:test';
 import { createPulse } from '../src/index.js';
 
 const credentials = {
   endpoint: 'https://ingest.example.test',
-  writeKey: `pulse_wk_${'w'.repeat(48)}`,
-  identitySecret: `pulse_is_${'i'.repeat(48)}`,
+  apiKey: `pulse_api_${'w'.repeat(48)}`,
   service: 'landing',
   environment: 'production',
 };
+
+test('configures with one API key and derives anonymous identity from full IP and User-Agent', async () => {
+  let body = '';
+  const pulse = createPulse({
+    endpoint: 'https://ingest.example.test',
+    apiKey: `pulse_api_${'a'.repeat(48)}`,
+    service: 'landing',
+    environment: 'production',
+    fetch: async (_url, init) => {
+      body = String(init?.body);
+
+      return new Response('{}', { status: 202 });
+    },
+    now: () => new Date('2026-08-25T12:30:00.000Z'),
+  });
+
+  pulse.observeRequest({
+    method: 'GET',
+    statusCode: 200,
+    userAgent: 'ChatGPT-User/1.0',
+    accept: 'text/markdown',
+    ip: '203.0.113.42',
+    surface: 'markdown',
+    surfaceName: 'home',
+  });
+  await pulse.flush();
+
+  assert.equal(pulse.diagnostics().configured, true);
+  assert.equal(JSON.parse(body).events[0].session_id, '35a769e703eb15a387832f95da41f46284ae7e9c0f8a98574a7de6cdbe1ba79b');
+  assert.doesNotMatch(body, /203\.0\.113\.42|ChatGPT-User/);
+});
 
 test('classifies locally, hashes network context, and never emits raw request data', async () => {
   const bodies: string[] = [];
@@ -42,8 +71,7 @@ test('classifies locally, hashes network context, and never emits raw request da
     { category: event.category, confidence: event.confidence, agent_family: event.agent_family, surface: event.surface },
     { category: 'interactive_agent', confidence: 'high', agent_family: 'chatgpt', surface: 'markdown' },
   );
-  const identity = 'production|landing|chatgpt|markdown|203.0.113.0|496572';
-  assert.equal(event.session_id, createHmac('sha256', credentials.identitySecret).update(identity).digest('hex'));
+  assert.equal(event.session_id, 'a4776a5b4476a37c4f59c714842428f776e4a4536cd0195a7350125236184110');
 });
 
 test('uses the previous UTC hour alias for the first five minutes', async () => {
@@ -56,8 +84,7 @@ test('uses the previous UTC hour alias for the first five minutes', async () => 
   pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Codex/1.0', accept: 'application/json', ip: '2001:db8:abcd:12::4', surface: 'api', surfaceName: 'public-api' });
   await pulse.flush();
   const event = JSON.parse(body).events[0];
-  const identity = 'production|landing|codex|json|2001:db8:abcd:12::/64|496572';
-  assert.equal(event.session_id, createHmac('sha256', credentials.identitySecret).update(identity).digest('hex'));
+  assert.equal(event.session_id, '50b49d0285958c0c24720e46f73a8aadcf88a37b13fb7dd1ad14597d64b97bea');
 });
 
 test('batches at 50 events and reports bounded queue overflow', async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@apostl-dev/pulse-sdk",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Privacy-safe server-side analytics for AI agent traffic",
   "license": "MIT",
   "author": "Apostl <hello@apostl.dev>",

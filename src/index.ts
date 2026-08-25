@@ -43,7 +43,10 @@ export interface PulseClient {
 
 export interface CreatePulseOptions {
   endpoint?: string;
+  apiKey?: string;
+  /** @deprecated Use apiKey or APOSTL_PULSE_API_KEY. */
   writeKey?: string;
+  /** @deprecated Anonymous identity is now derived with the API key. */
   identitySecret?: string;
   service?: string;
   environment?: string;
@@ -82,11 +85,10 @@ const ALLOWED_SURFACES = new Set<PulseSurface>(['html', 'markdown', 'llms', 'mcp
 
 export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   const endpoint = String(options.endpoint ?? process.env.APOSTL_PULSE_ENDPOINT ?? '').replace(/\/+$/, '');
-  const writeKey = String(options.writeKey ?? process.env.APOSTL_PULSE_WRITE_KEY ?? '');
-  const identitySecret = String(options.identitySecret ?? process.env.APOSTL_PULSE_IDENTITY_SECRET ?? '');
+  const apiKey = String(options.apiKey ?? process.env.APOSTL_PULSE_API_KEY ?? options.writeKey ?? process.env.APOSTL_PULSE_WRITE_KEY ?? '');
   const service = safeLabel(options.service ?? process.env.APOSTL_PULSE_SERVICE ?? 'app', 'app');
   const environment = safeLabel(options.environment ?? process.env.APOSTL_PULSE_ENVIRONMENT ?? process.env.NODE_ENV ?? 'production', 'production');
-  const configured = Boolean(endpoint && writeKey.startsWith('pulse_wk_') && identitySecret.startsWith('pulse_is_'));
+  const configured = Boolean(endpoint && isApiKey(apiKey));
   const enabled = options.enabled !== false && configured;
   const queueLimit = clamp(options.queueLimit ?? 500, 1, 500);
   const timeoutMs = clamp(options.timeoutMs ?? 1000, 1, 1000);
@@ -124,9 +126,9 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       const surface = input.surface && ALLOWED_SURFACES.has(input.surface) ? input.surface : inferSurface(acceptFamily);
       const surfaceName = safeLabel(input.surfaceName ?? 'other', 'other');
       const epoch = Math.floor(timestamp.getTime() / 3_600_000) - (timestamp.getUTCMinutes() < 5 ? 1 : 0);
-      const network = networkPrefix(input.ip ?? header(input.headers, 'cf-connecting-ip'));
-      const identity = [environment, service, classification.agentFamily, acceptFamily, network, epoch].join('|');
-      const sessionId = createHmac('sha256', identitySecret).update(identity).digest('hex');
+      const ip = canonicalIp(input.ip ?? header(input.headers, 'cf-connecting-ip'));
+      const identity = JSON.stringify([environment, service, ip, canonicalUserAgent(userAgent), epoch]);
+      const sessionId = createHmac('sha256', apiKey).update(identity).digest('hex');
       const event: PulseEvent = {
         event_id: randomUUID(),
         occurred_at: timestamp.toISOString(),
@@ -180,7 +182,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       try {
         const response = await fetcher(`${endpoint}/api/v1/pulse/events/batch`, {
           method: 'POST',
-          headers: { Accept: 'application/json', Authorization: `Bearer ${writeKey}`, 'Content-Type': 'application/json' },
+          headers: { Accept: 'application/json', Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
           body,
           signal: controller.signal,
         });
@@ -281,18 +283,17 @@ function header(headers: HeaderValues | undefined, name: string): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
-function networkPrefix(input: string): string {
+function canonicalIp(input: string): string {
   const ip = String(input).split(',')[0]?.trim() ?? '';
-  if (isIP(ip) === 4) {
-    const parts = ip.split('.');
-    return `${parts[0]}.${parts[1]}.${parts[2]}.0`;
-  }
-  if (isIP(ip) === 6) {
-    const head = ip.split('::')[0] ?? '';
-    const parts = head.split(':').filter(Boolean).slice(0, 4);
-    return `${parts.join(':')}::/64`;
-  }
-  return 'unknown';
+  return isIP(ip) ? ip.toLowerCase() : 'unknown';
+}
+
+function canonicalUserAgent(input: string): string {
+  return String(input).trim().slice(0, 1024) || 'unknown';
+}
+
+function isApiKey(input: string): boolean {
+  return (input.startsWith('pulse_api_') || input.startsWith('pulse_wk_')) && input.length >= 32;
 }
 
 function safeLabel(input: string, fallback: string): string {
