@@ -7,15 +7,15 @@ Pulse classifies request headers locally, turns coarse network context into an h
 ## Install
 
 ```sh
-npm install https://platform.apostl.dev/sdk/apostldev-pulse-sdk-0.1.0.tgz
+npm install @apostl-dev/pulse-sdk
 ```
 
-The package is also available as complete [MIT-licensed source](https://github.com/apostl-dev/pulse-sdk). The canonical npm registry name is `@apostldev/pulse-sdk`; registry publication is pending publisher activation, so the HTTPS tarball above is the verified installation path for `0.1.0`.
+The package is also available as complete [MIT-licensed source](https://github.com/apostl-dev/pulse-sdk).
 
 ## Fetch / Node
 
 ```ts
-import { createPulse } from '@apostldev/pulse-sdk';
+import { createPulse } from '@apostl-dev/pulse-sdk';
 
 const pulse = createPulse({
   endpoint: 'https://ingest.apostl.dev',
@@ -40,7 +40,7 @@ Call `await pulse.flush()` during graceful shutdown. `diagnostics()` exposes bou
 ## Express
 
 ```ts
-import { pulseExpressMiddleware } from '@apostldev/pulse-sdk/express';
+import { pulseExpressMiddleware } from '@apostl-dev/pulse-sdk/express';
 
 app.use(pulseExpressMiddleware(pulse, () => ({ surface: 'html', surfaceName: 'docs' })));
 ```
@@ -48,7 +48,7 @@ app.use(pulseExpressMiddleware(pulse, () => ({ surface: 'html', surfaceName: 'do
 ## Next.js
 
 ```ts
-import { withPulse } from '@apostldev/pulse-sdk/next';
+import { withPulse } from '@apostl-dev/pulse-sdk/next';
 
 export const GET = withPulse(pulse, async () => Response.json({ ok: true }), () => ({
   surface: 'api',
