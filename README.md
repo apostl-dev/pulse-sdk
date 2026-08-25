@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="https://raw.githubusercontent.com/apostl-dev/pulse-sdk/main/docs/pulse-readme.svg" alt="Apostl Pulse — live AI agent traffic signal" width="100%" />
+</p>
+
 # Apostl Pulse SDK
 
 Privacy-safe, server-side measurement for one question: **how many AI agents are using your product right now?**
