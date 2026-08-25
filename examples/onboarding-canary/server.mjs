@@ -1,5 +1,8 @@
 import { createServer } from 'node:http';
-import { createPulse } from '@apostl-dev/pulse-sdk';
+
+const { createPulse } = await import(
+  process.env.APOSTL_PULSE_MODULE ?? '@apostl-dev/pulse-sdk'
+);
 
 const pulse = createPulse({
   endpoint: process.env.APOSTL_PULSE_ENDPOINT ?? 'https://ingest.apostl.dev',

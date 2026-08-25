@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 
 test('production canary answers the signed challenge and sends the exact real request', async (t) => {
@@ -20,13 +21,14 @@ test('production canary answers the signed challenge and sends the exact real re
 
   const port = await availablePort();
   const apiKey = `pulse_api_${'k'.repeat(48)}`;
-  const child = spawn(process.execPath, ['server.mjs'], {
+  const child = spawn(process.execPath, ['--import', 'tsx', 'server.mjs'], {
     cwd: resolve('examples/onboarding-canary'),
     env: {
       ...process.env,
       PORT: String(port),
       APOSTL_PULSE_API_KEY: apiKey,
       APOSTL_PULSE_ENDPOINT: `http://127.0.0.1:${(ingest.address() as { port: number }).port}`,
+      APOSTL_PULSE_MODULE: pathToFileURL(resolve('src/index.ts')).href,
     },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
