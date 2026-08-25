@@ -5,16 +5,14 @@ import { createPulse } from '../src/index.js';
 const credentials = {
   endpoint: 'https://ingest.example.test',
   apiKey: `pulse_api_${'w'.repeat(48)}`,
-  service: 'landing',
   environment: 'production',
 };
 
-test('configures with one API key and derives anonymous identity from full IP and User-Agent', async () => {
+test('configures without a service type and sends IP and User-Agent with the event', async () => {
   let body = '';
   const pulse = createPulse({
     endpoint: 'https://ingest.example.test',
     apiKey: `pulse_api_${'a'.repeat(48)}`,
-    service: 'landing',
     environment: 'production',
     fetch: async (_url, init) => {
       body = String(init?.body);
@@ -36,11 +34,15 @@ test('configures with one API key and derives anonymous identity from full IP an
   await pulse.flush();
 
   assert.equal(pulse.diagnostics().configured, true);
-  assert.equal(JSON.parse(body).events[0].session_id, '35a769e703eb15a387832f95da41f46284ae7e9c0f8a98574a7de6cdbe1ba79b');
-  assert.doesNotMatch(body, /203\.0\.113\.42|ChatGPT-User/);
+  const payload = JSON.parse(body);
+  assert.equal(payload.schema_version, 2);
+  const event = payload.events[0];
+  assert.equal(event.session_id, 'cc88c7a5ab5992ccba6d890dc430b89373bb7bbd81eae859ed2d608d12f1fc15');
+  assert.equal(event.ip, '203.0.113.42');
+  assert.equal(event.user_agent, 'ChatGPT-User/1.0');
 });
 
-test('classifies locally, hashes network context, and never emits raw request data', async () => {
+test('classifies locally while excluding unrelated sensitive request data', async () => {
   const bodies: string[] = [];
   const pulse = createPulse({
     ...credentials,
@@ -65,13 +67,15 @@ test('classifies locally, hashes network context, and never emits raw request da
 
   assert.equal(bodies.length, 1);
   const raw = bodies[0]!;
-  assert.doesNotMatch(raw, /203\.0\.113\.42|ChatGPT-User|secret|Bearer|sid=|private|token=/);
+  assert.doesNotMatch(raw, /Bearer|sid=|private|token=/);
   const event = JSON.parse(raw).events[0];
   assert.deepEqual(
     { category: event.category, confidence: event.confidence, agent_family: event.agent_family, surface: event.surface },
     { category: 'interactive_agent', confidence: 'high', agent_family: 'chatgpt', surface: 'markdown' },
   );
-  assert.equal(event.session_id, 'a4776a5b4476a37c4f59c714842428f776e4a4536cd0195a7350125236184110');
+  assert.equal(event.ip, '203.0.113.42');
+  assert.equal(event.user_agent, 'ChatGPT-User/1.0 secret');
+  assert.equal(event.session_id, '42368bd8078350021a4e48593f9255ab9a7dc190103d34675943f79b1bae169b');
 });
 
 test('uses the previous UTC hour alias for the first five minutes', async () => {
@@ -84,7 +88,7 @@ test('uses the previous UTC hour alias for the first five minutes', async () => 
   pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Codex/1.0', accept: 'application/json', ip: '2001:db8:abcd:12::4', surface: 'api', surfaceName: 'public-api' });
   await pulse.flush();
   const event = JSON.parse(body).events[0];
-  assert.equal(event.session_id, '50b49d0285958c0c24720e46f73a8aadcf88a37b13fb7dd1ad14597d64b97bea');
+  assert.equal(event.session_id, 'afc8634799f6ce78335fe3193d023e43c861b5369834bee3e36a33599a414145');
 });
 
 test('batches at 50 events and reports bounded queue overflow', async () => {
@@ -111,14 +115,14 @@ test('retries only 429 and 5xx, with at most three attempts', async () => {
     sleep: async () => {},
     random: () => 0,
   });
-  retrying.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Claude-Code/1', accept: 'application/json', surface: 'api', surfaceName: 'api' });
+  retrying.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Claude-Code/1', accept: 'application/json', ip: '203.0.113.42', surface: 'api', surfaceName: 'api' });
   await retrying.flush();
   assert.equal(retryCalls, 3);
   assert.equal(retrying.diagnostics().sent, 1);
 
   let badRequestCalls = 0;
   const notRetrying = createPulse({ ...credentials, fetch: async () => { badRequestCalls += 1; return new Response('{}', { status: 400 }); }, sleep: async () => {} });
-  notRetrying.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Claude-Code/1', accept: 'application/json', surface: 'api', surfaceName: 'api' });
+  notRetrying.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Claude-Code/1', accept: 'application/json', ip: '203.0.113.42', surface: 'api', surfaceName: 'api' });
   await notRetrying.flush();
   assert.equal(badRequestCalls, 1);
   assert.equal(notRetrying.diagnostics().droppedDelivery, 1);
@@ -131,9 +135,28 @@ test('times out delivery after one second and never throws into the host app', a
     fetch: async (_url, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))),
     sleep: async () => {},
   });
-  assert.doesNotThrow(() => pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'unknown', accept: 'text/html', surface: 'html', surfaceName: 'home' }));
+  assert.doesNotThrow(() => pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'unknown', accept: 'text/html', ip: '203.0.113.42', surface: 'html', surfaceName: 'home' }));
   await assert.doesNotReject(() => pulse.flush());
   assert.equal(pulse.diagnostics().droppedDelivery, 1);
+});
+
+test('drops observations that cannot send both IP and User-Agent', async () => {
+  let deliveries = 0;
+  const pulse = createPulse({
+    ...credentials,
+    fetch: async () => {
+      deliveries += 1;
+      return new Response('{}', { status: 202 });
+    },
+  });
+
+  pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'Codex/1.0' });
+  pulse.observeRequest({ method: 'GET', statusCode: 200, ip: '203.0.113.42' });
+  await pulse.flush();
+
+  assert.equal(deliveries, 0);
+  assert.equal(pulse.diagnostics().accepted, 0);
+  assert.equal(pulse.diagnostics().droppedInvalid, 2);
 });
 
 test('disabled mode is a safe no-op', async () => {

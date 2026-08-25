@@ -14,7 +14,7 @@ export function withPulse<Args extends unknown[]>(
       method: request.method,
       statusCode: response.status,
       headers: request.headers,
-      ip: request.headers.get('cf-connecting-ip') ?? undefined,
+      ip: request.headers.get('cf-connecting-ip') ?? request.headers.get('x-forwarded-for') ?? undefined,
       url: request.url,
       durationMs: Math.round(performance.now() - startedAt),
       ...select(request),

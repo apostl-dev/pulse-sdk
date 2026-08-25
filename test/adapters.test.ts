@@ -30,8 +30,15 @@ test('Next adapter preserves the original response and observes it', async () =>
   const observed: unknown[] = [];
   const response = new Response('ok', { status: 201, headers: { 'content-type': 'text/markdown' } });
   const wrapped = withPulse(observingClient(observed), async () => response, () => ({ surface: 'markdown', surfaceName: 'home' }));
-  const actual = await wrapped(new Request('https://example.test/', { headers: { accept: 'text/markdown' } }));
+  const actual = await wrapped(new Request('https://example.test/', {
+    headers: {
+      accept: 'text/markdown',
+      'user-agent': 'Claude-Code/1.0',
+      'x-forwarded-for': '203.0.113.42, 10.0.0.1',
+    },
+  }));
   assert.equal(actual, response);
   assert.equal(observed.length, 1);
   assert.equal((observed[0] as { statusCode: number }).statusCode, 201);
+  assert.equal((observed[0] as { ip: string }).ip, '203.0.113.42, 10.0.0.1');
 });

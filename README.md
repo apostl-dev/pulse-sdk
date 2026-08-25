@@ -4,9 +4,9 @@
 
 # Apostl Pulse SDK
 
-Privacy-safe, server-side measurement for one question: **how many AI agents are using your product right now?**
+Server-side measurement for one question: **how many AI agents are using your product right now?**
 
-Pulse classifies request headers locally and derives an hourly anonymous session identifier from the full IP address and User-Agent using your server-only API key. It sends only allow-listed aggregate-safe fields. Raw URLs, paths, queries, request bodies, cookies, authorization headers, IP addresses, and User-Agent strings never leave your server as event data. The API key is used only as the HTTPS bearer credential and local HMAC key; it is never included in the event payload.
+Pulse sends the request IP address and full User-Agent to your configured ingest endpoint. Ingest uses them for centrally managed agent classification, while the SDK derives an hourly session identifier with your server-only API key. Raw URLs, paths, queries, request bodies, cookies, and authorization headers are never included in Pulse events. The API key is used only as the HTTPS bearer credential and local HMAC key; it is never included in the event payload.
 
 ## Install
 
@@ -24,7 +24,6 @@ import { createPulse } from '@apostl-dev/pulse-sdk';
 const pulse = createPulse({
   endpoint: 'https://ingest.apostl.dev',
   apiKey: process.env.APOSTL_PULSE_API_KEY,
-  service: 'docs',
   environment: 'production',
 });
 
@@ -45,6 +44,8 @@ APOSTL_PULSE_API_KEY=pulse_api_...
 ```
 
 Do not expose it through browser bundles or public environment variables. Existing `writeKey` and `APOSTL_PULSE_WRITE_KEY` configurations remain supported as deprecated migration aliases.
+
+`service` is intentionally not part of the SDK interface. Name and segment each installation in your analytics workspace. Because IP addresses and User-Agent strings are transmitted, disclose the collection and choose an appropriate retention policy for your jurisdiction.
 
 Call `await pulse.flush()` during graceful shutdown. `diagnostics()` exposes bounded counters and never exposes credentials or captured request values.
 

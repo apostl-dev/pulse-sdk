@@ -48,7 +48,6 @@ export interface CreatePulseOptions {
   writeKey?: string;
   /** @deprecated Anonymous identity is now derived with the API key. */
   identitySecret?: string;
-  service?: string;
   environment?: string;
   enabled?: boolean;
   queueLimit?: number;
@@ -64,6 +63,8 @@ interface PulseEvent {
   event_id: string;
   occurred_at: string;
   session_id: string;
+  ip: string;
+  user_agent: string;
   category: PulseCategory;
   confidence: PulseConfidence;
   agent_family: string;
@@ -78,6 +79,7 @@ interface PulseEvent {
 }
 
 const MAX_EVENTS = 50;
+const SCHEMA_VERSION = 2;
 const MAX_BATCH_BYTES = 256 * 1024;
 const MAX_EVENT_BYTES = 16 * 1024;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
@@ -86,7 +88,6 @@ const ALLOWED_SURFACES = new Set<PulseSurface>(['html', 'markdown', 'llms', 'mcp
 export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   const endpoint = String(options.endpoint ?? process.env.APOSTL_PULSE_ENDPOINT ?? '').replace(/\/+$/, '');
   const apiKey = String(options.apiKey ?? process.env.APOSTL_PULSE_API_KEY ?? options.writeKey ?? process.env.APOSTL_PULSE_WRITE_KEY ?? '');
-  const service = safeLabel(options.service ?? process.env.APOSTL_PULSE_SERVICE ?? 'app', 'app');
   const environment = safeLabel(options.environment ?? process.env.APOSTL_PULSE_ENVIRONMENT ?? process.env.NODE_ENV ?? 'production', 'production');
   const configured = Boolean(endpoint && isApiKey(apiKey));
   const enabled = options.enabled !== false && configured;
@@ -127,12 +128,19 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       const surfaceName = safeLabel(input.surfaceName ?? 'other', 'other');
       const epoch = Math.floor(timestamp.getTime() / 3_600_000) - (timestamp.getUTCMinutes() < 5 ? 1 : 0);
       const ip = canonicalIp(input.ip ?? header(input.headers, 'cf-connecting-ip'));
-      const identity = JSON.stringify([environment, service, ip, canonicalUserAgent(userAgent), epoch]);
+      const normalizedUserAgent = canonicalUserAgent(userAgent);
+      if (!ip || !normalizedUserAgent) {
+        counters.droppedInvalid += 1;
+        return;
+      }
+      const identity = JSON.stringify([environment, ip, normalizedUserAgent, epoch]);
       const sessionId = createHmac('sha256', apiKey).update(identity).digest('hex');
       const event: PulseEvent = {
         event_id: randomUUID(),
         occurred_at: timestamp.toISOString(),
         session_id: sessionId,
+        ip,
+        user_agent: normalizedUserAgent,
         category: classification.category,
         confidence: classification.confidence,
         agent_family: classification.agentFamily,
@@ -175,7 +183,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   }
 
   async function deliver(events: PulseEvent[]): Promise<boolean> {
-    const body = JSON.stringify({ schema_version: 1, sent_at: now().toISOString(), events });
+    const body = JSON.stringify({ schema_version: SCHEMA_VERSION, sent_at: now().toISOString(), events });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -222,7 +230,7 @@ function batches(events: PulseEvent[], now: () => Date): PulseEvent[][] {
   let current: PulseEvent[] = [];
   for (const event of events) {
     const candidate = [...current, event];
-    const size = byteLength({ schema_version: 1, sent_at: now().toISOString(), events: candidate });
+    const size = byteLength({ schema_version: SCHEMA_VERSION, sent_at: now().toISOString(), events: candidate });
     if (current.length >= MAX_EVENTS || size > MAX_BATCH_BYTES) {
       if (current.length) result.push(current);
       current = [event];
@@ -285,11 +293,11 @@ function header(headers: HeaderValues | undefined, name: string): string {
 
 function canonicalIp(input: string): string {
   const ip = String(input).split(',')[0]?.trim() ?? '';
-  return isIP(ip) ? ip.toLowerCase() : 'unknown';
+  return isIP(ip) ? ip.toLowerCase() : '';
 }
 
 function canonicalUserAgent(input: string): string {
-  return String(input).trim().slice(0, 1024) || 'unknown';
+  return String(input).trim().slice(0, 1024);
 }
 
 function isApiKey(input: string): boolean {
