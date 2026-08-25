@@ -4,7 +4,7 @@
 
 # Apostl Pulse SDK
 
-See every AI agent visit. Measure how agents interact with your website, docs, or APIs.
+Estimate AI agent visits and see which public website, docs, or API pages they use.
 
 Pulse works as a middleware to track any agent-first endpoint:
 - Markdown-supported pages
@@ -64,29 +64,27 @@ export const GET = withPulse(pulse, async () => new Response(renderDocs(), {
 }));
 ```
 
-## Setup for AI agents (Claude, Codex, etc)
+## Setup for AI agents
 
-An AI agent can deploy Apostl Pulse in one call:
-
-```sh
-curl -X POST https://platform.apostl.dev/api/v1/pulse/setups \
-  -H 'content-type: application/json' \
-  -d '{"origin":"https://docs.example.com","verification_path":"/llms.txt","project_name":"Example docs","agent_name":"Codex"}'
-```
-
-The response reveals the credentials and `verify_url` once. Deploy an adapter, then poll `verify_url` with `Authorization: Bearer <setup_token>` to verify a real event and receive the one-time human claim URL. Unclaimed setups expire after seven days, and already-connected origins are rejected.
-
-For a guided first-site setup, use the [Agent Traffic Analytics skill](https://github.com/apostl-dev/apostl-skills/tree/main/skills/agent-traffic-analytics):
+Install the public setup skill:
 
 ```sh
 npx skills add apostl-dev/apostl-skills --skill agent-traffic-analytics -g -y
 ```
 
-Then ask your agent:
+Then ask your agent to connect the exact public HTTPS origin where it is authorized to deploy the server middleware. The skill stores the one-time API key and setup token in an owner-only file instead of printing them.
+
+`example.com` and similar names are reserved documentation domains, not end-to-end demo targets. Pulse rejects them before issuing credentials. Use a real origin you can deploy, or stop and obtain one from the owner.
+
+Example task:
 
 ```text
-Use $agent-traffic-analytics to connect https://docs.example.com and verify a real visit to /llms.txt.
+Use $agent-traffic-analytics to connect my authorized public docs origin and verify a real visit to /llms.txt.
 ```
+
+The unclaimed setup lasts seven days. A claim URL appears only after the signed public response and the matching genuine event both pass. The owner then signs in with Google, GitHub, or an email magic link; the ingest API key remains active after claim.
+
+Read the [full agent setup guide](https://apostl.dev/pulse.md) or the exact [OpenAPI contract](https://apostl.dev/openapi.json).
 
 ## Troubleshooting
 
