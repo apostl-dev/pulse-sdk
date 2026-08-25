@@ -4,11 +4,15 @@
 
 # Apostl Pulse SDK
 
-See estimated AI-agent visits and the public pages they use. Learn whether agents are finding your docs, APIs, and machine-readable surfaces.
+See every AI agent visit. Measure how agents interact with your website, docs, APIs, and machine-readable surfaces.
 
-Pulse filters out assets, health/auth/private routes, and mutations. Counts are heuristic estimates, not identity proof.
+Pulse works as a middleware to track any agent-first endpoint:
+- Markdown-supported pages
+- llms.txt and llms-full.txt
+- API endpoints for agents
+- app routes for agents
 
-## Install
+## One-line Install
 
 ```sh
 npm install @apostl-dev/pulse-sdk
@@ -16,7 +20,7 @@ npm install @apostl-dev/pulse-sdk
 
 MIT-licensed [source code is on GitHub](https://github.com/apostl-dev/pulse-sdk).
 
-## Node
+### Node
 
 ```ts
 import { createPulse } from '@apostl-dev/pulse-sdk';
@@ -38,9 +42,11 @@ pulse.observeRequest({
 });
 ```
 
-Pulse sends the trusted client IP and full User-Agent, but never bodies, cookies, or authorization headers. For example, use `cf-connecting-ip` only when your deployment trusts Cloudflare. Keep `APOSTL_PULSE_API_KEY` in the server runtime; never expose it through browser bundles or public environment variables.
+* Pulse SDK sends the trusted client IP and User-Agent data to [Apostl website](https://apostl.dev).
+* Use `cf-connecting-ip` when your deployment trusts Cloudflare.
+* Keep `APOSTL_PULSE_API_KEY` in the server runtime; never expose it through browser bundles or public environment variables.
 
-## Express
+### Express
 
 ```ts
 import { pulseExpressMiddleware } from '@apostl-dev/pulse-sdk/express';
@@ -48,7 +54,7 @@ import { pulseExpressMiddleware } from '@apostl-dev/pulse-sdk/express';
 app.use(pulseExpressMiddleware(pulse));
 ```
 
-## Next.js
+### Next.js
 
 ```ts
 import { withPulse } from '@apostl-dev/pulse-sdk/next';
@@ -58,9 +64,9 @@ export const GET = withPulse(pulse, async () => new Response(renderDocs(), {
 }));
 ```
 
-## Setup for AI agents
+## Setup for AI agents (Claude, Codex, etc)
 
-An AI agent can create an unclaimed setup in one call:
+An AI agent can deploy Apostl Pulse in one call:
 
 ```sh
 curl -X POST https://platform.apostl.dev/api/v1/pulse/setups \
@@ -88,6 +94,7 @@ Use $agent-traffic-analytics to connect https://docs.example.com and verify a re
 | --- | --- |
 | No events | Confirm the server has the API key and ingest endpoint, and that requests include a trusted client IP and full User-Agent. |
 | Verification is waiting | Deploy the adapter on the public HTTPS origin and keep the selected verification path reachable, then retry the same `verify_url`. |
+| IP addresses are the same | Check your trusted proxy setup (Cloudflare, nginx, etc) |
 | Final events are missing | Call `await pulse.flush()` during graceful shutdown. |
 | Need local state | `diagnostics()` returns bounded counters without credentials or captured request data. |
 
