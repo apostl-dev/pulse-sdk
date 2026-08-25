@@ -2,9 +2,16 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
+
+test('production image includes the Coolify healthcheck client', async () => {
+  const dockerfile = await readFile(resolve('examples/onboarding-canary/Dockerfile'), 'utf8');
+
+  assert.match(dockerfile, /apk add --no-cache curl/);
+});
 
 test('production canary answers the signed challenge and sends the exact real request', async (t) => {
   const batches: Array<Record<string, unknown>> = [];
