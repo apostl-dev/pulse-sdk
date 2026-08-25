@@ -1,4 +1,10 @@
-import type { ObserveRequestInput, PulseClient, PulseSurface } from './index.js';
+import {
+  PULSE_VERIFICATION_PAGE_HEADER,
+  PULSE_VERIFICATION_PROOF_HEADER,
+  type ObserveRequestInput,
+  type PulseClient,
+  type PulseSurface,
+} from './index.js';
 
 interface ExpressRequestLike {
   method?: string;
@@ -10,6 +16,7 @@ interface ExpressRequestLike {
 
 interface ExpressResponseLike {
   statusCode?: number;
+  setHeader?(name: string, value: string): unknown;
   once?(event: 'finish', listener: () => void): unknown;
   on?(event: 'finish', listener: () => void): unknown;
 }
@@ -20,6 +27,12 @@ export function pulseExpressMiddleware(
 ) {
   return (request: ExpressRequestLike, response: ExpressResponseLike, next: () => void): void => {
     const startedAt = performance.now();
+    const requestUrl = request.originalUrl ?? request.url;
+    const verification = pulse.verificationResponse({ headers: request.headers, url: requestUrl });
+    if (verification && response.setHeader) {
+      response.setHeader(PULSE_VERIFICATION_PAGE_HEADER, verification.pageUrl);
+      response.setHeader(PULSE_VERIFICATION_PROOF_HEADER, verification.proof);
+    }
     const observe = (): void => {
       const selection = select(request);
       const input: ObserveRequestInput = {
@@ -27,7 +40,7 @@ export function pulseExpressMiddleware(
         statusCode: response.statusCode,
         headers: request.headers,
         ip: request.ip,
-        url: request.originalUrl ?? request.url,
+        url: requestUrl,
         durationMs: Math.round(performance.now() - startedAt),
         ...selection,
       };

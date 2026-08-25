@@ -1,7 +1,7 @@
 {
   "name": "@apostl-dev/pulse-sdk",
-  "version": "0.2.0",
-  "description": "Privacy-safe server-side analytics for AI agent traffic",
+  "version": "0.3.0",
+  "description": "Server-side analytics for AI agent traffic",
   "license": "MIT",
   "author": "Apostl <hello@apostl.dev>",
   "repository": {
@@ -10,7 +10,7 @@
   },
   "homepage": "https://platform.apostl.dev",
   "bugs": "https://github.com/apostl-dev/pulse-sdk/issues",
-  "keywords": ["ai-agents", "analytics", "server", "privacy", "observability"],
+  "keywords": ["ai-agents", "analytics", "server", "observability"],
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

@@ -8,7 +8,6 @@ test('accepts and flushes a 250 events-per-second envelope without loss', async 
   const pulse = createPulse({
     endpoint: 'https://ingest.example.test',
     apiKey: `pulse_api_${'w'.repeat(48)}`,
-    service: 'load-test',
     environment: 'test',
     flushIntervalMs: 0,
     fetch: async (_url, init) => {
@@ -26,6 +25,7 @@ test('accepts and flushes a 250 events-per-second envelope without loss', async 
       userAgent: 'Codex/1.0',
       accept: 'text/markdown',
       ip: `198.51.100.${index % 255}`,
+      url: 'https://example.test/docs/load',
       surface: 'markdown',
       surfaceName: 'load-test',
     });

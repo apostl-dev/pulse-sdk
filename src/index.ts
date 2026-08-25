@@ -6,12 +6,12 @@ export type PulseConfidence = 'high' | 'medium' | 'low';
 export type PulseSurface = 'html' | 'markdown' | 'llms' | 'mcp' | 'skill' | 'api' | 'other';
 export type PulseAcceptFamily = 'html' | 'markdown' | 'json' | 'other';
 
-type HeaderValues = Record<string, string | string[] | undefined> | Headers | { get(name: string): string | null };
+export type PulseHeaderValues = Record<string, string | string[] | undefined> | Headers | { get(name: string): string | null };
 
 export interface ObserveRequestInput {
   method?: string | undefined;
   statusCode?: number | undefined;
-  headers?: HeaderValues | undefined;
+  headers?: PulseHeaderValues | undefined;
   userAgent?: string | undefined;
   accept?: string | undefined;
   ip?: string | undefined;
@@ -19,6 +19,7 @@ export interface ObserveRequestInput {
   surface?: PulseSurface | undefined;
   surfaceName?: string | undefined;
   durationMs?: number | undefined;
+  /** @deprecated Eligibility is fixed to public GET/HEAD pages and this value is ignored. */
   eligible?: boolean | undefined;
 }
 
@@ -36,6 +37,7 @@ export interface PulseDiagnostics {
 
 export interface PulseClient {
   observeRequest(input: ObserveRequestInput): void;
+  verificationResponse(input: { headers?: PulseHeaderValues | undefined; url?: string | undefined }): { pageUrl: string; proof: string } | null;
   flush(): Promise<void>;
   diagnostics(): PulseDiagnostics;
   close(): Promise<void>;
@@ -48,7 +50,6 @@ export interface CreatePulseOptions {
   writeKey?: string;
   /** @deprecated Anonymous identity is now derived with the API key. */
   identitySecret?: string;
-  service?: string;
   environment?: string;
   enabled?: boolean;
   queueLimit?: number;
@@ -64,6 +65,10 @@ interface PulseEvent {
   event_id: string;
   occurred_at: string;
   session_id: string;
+  ip: string;
+  user_agent: string;
+  page_url: string;
+  page_path: string;
   category: PulseCategory;
   confidence: PulseConfidence;
   agent_family: string;
@@ -78,15 +83,21 @@ interface PulseEvent {
 }
 
 const MAX_EVENTS = 50;
+const SCHEMA_VERSION = 2;
 const MAX_BATCH_BYTES = 256 * 1024;
 const MAX_EVENT_BYTES = 16 * 1024;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 const ALLOWED_SURFACES = new Set<PulseSurface>(['html', 'markdown', 'llms', 'mcp', 'skill', 'api', 'other']);
+const PRIVATE_PAGE_PREFIXES = ['/api', '/auth', '/admin', '/dashboard', '/account', '/settings', '/projects'];
+const PRIVATE_PAGE_PATHS = new Set(['/health', '/login', '/logout', '/register', '/forgot-password', '/reset-password']);
+const ASSET_EXTENSION = /\.(?:avif|bmp|bz2|cjs|css|eot|gif|gz|ico|jpe?g|js|map|mjs|mp3|mp4|ogg|pdf|png|svg|tar|tiff?|ttf|wasm|wav|webm|webp|woff2?|zip|7z)$/i;
+export const PULSE_VERIFICATION_CHALLENGE_HEADER = 'x-apostl-pulse-challenge';
+export const PULSE_VERIFICATION_PROOF_HEADER = 'x-apostl-pulse-proof';
+export const PULSE_VERIFICATION_PAGE_HEADER = 'x-apostl-pulse-page';
 
 export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   const endpoint = String(options.endpoint ?? process.env.APOSTL_PULSE_ENDPOINT ?? '').replace(/\/+$/, '');
   const apiKey = String(options.apiKey ?? process.env.APOSTL_PULSE_API_KEY ?? options.writeKey ?? process.env.APOSTL_PULSE_WRITE_KEY ?? '');
-  const service = safeLabel(options.service ?? process.env.APOSTL_PULSE_SERVICE ?? 'app', 'app');
   const environment = safeLabel(options.environment ?? process.env.APOSTL_PULSE_ENVIRONMENT ?? process.env.NODE_ENV ?? 'production', 'production');
   const configured = Boolean(endpoint && isApiKey(apiKey));
   const enabled = options.enabled !== false && configured;
@@ -127,12 +138,24 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       const surfaceName = safeLabel(input.surfaceName ?? 'other', 'other');
       const epoch = Math.floor(timestamp.getTime() / 3_600_000) - (timestamp.getUTCMinutes() < 5 ? 1 : 0);
       const ip = canonicalIp(input.ip ?? header(input.headers, 'cf-connecting-ip'));
-      const identity = JSON.stringify([environment, service, ip, canonicalUserAgent(userAgent), epoch]);
+      const normalizedUserAgent = canonicalUserAgent(userAgent);
+      const page = canonicalPage(input.url, input.headers);
+      if (!ip || !normalizedUserAgent || !page) {
+        counters.droppedInvalid += 1;
+        return;
+      }
+      const eligible = isPublicPage(method, statusCode, page.path);
+      if (!eligible) return;
+      const identity = JSON.stringify([environment, ip, normalizedUserAgent, epoch]);
       const sessionId = createHmac('sha256', apiKey).update(identity).digest('hex');
       const event: PulseEvent = {
         event_id: randomUUID(),
         occurred_at: timestamp.toISOString(),
         session_id: sessionId,
+        ip,
+        user_agent: normalizedUserAgent,
+        page_url: page.url,
+        page_path: page.path,
         category: classification.category,
         confidence: classification.confidence,
         agent_family: classification.agentFamily,
@@ -142,7 +165,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
         method,
         status_code: statusCode,
         duration_ms: Number.isFinite(input.durationMs) ? clamp(Number(input.durationMs), 0, 300_000) : null,
-        eligible: input.eligible ?? ((method === 'GET' || method === 'HEAD') && statusCode >= 200 && statusCode < 400),
+        eligible: true,
         classification_reason: classification.reason,
       };
       if (byteLength(event) > MAX_EVENT_BYTES) {
@@ -161,6 +184,18 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
     }
   }
 
+  function verificationResponse(input: { headers?: PulseHeaderValues | undefined; url?: string | undefined }): { pageUrl: string; proof: string } | null {
+    if (!enabled || closed) return null;
+    const challenge = header(input.headers, PULSE_VERIFICATION_CHALLENGE_HEADER).trim();
+    if (!/^verify-[A-Za-z0-9_-]{16,128}$/.test(challenge)) return null;
+    const page = canonicalPage(input.url, input.headers);
+    if (!page) return null;
+    const message = `pulse-verify-v1\n${challenge}\n${page.url}`;
+    const signature = createHmac('sha256', apiKey).update(message).digest('hex');
+
+    return { pageUrl: page.url, proof: `v1:${signature}` };
+  }
+
   async function flush(): Promise<void> {
     if (!enabled || flushing || queue.length === 0) return flushing ?? Promise.resolve();
     flushing = (async () => {
@@ -175,7 +210,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   }
 
   async function deliver(events: PulseEvent[]): Promise<boolean> {
-    const body = JSON.stringify({ schema_version: 1, sent_at: now().toISOString(), events });
+    const body = JSON.stringify({ schema_version: SCHEMA_VERSION, sent_at: now().toISOString(), events });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -214,7 +249,15 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
     await flush();
   }
 
-  return { observeRequest, flush, diagnostics, close };
+  return { observeRequest, verificationResponse, flush, diagnostics, close };
+}
+
+function isPublicPage(method: string, statusCode: number, pagePath: string): boolean {
+  if (!['GET', 'HEAD'].includes(method) || statusCode < 200 || statusCode >= 500) return false;
+  const normalizedPath = pagePath.toLowerCase();
+  if (PRIVATE_PAGE_PATHS.has(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
+
+  return !PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
 }
 
 function batches(events: PulseEvent[], now: () => Date): PulseEvent[][] {
@@ -222,7 +265,7 @@ function batches(events: PulseEvent[], now: () => Date): PulseEvent[][] {
   let current: PulseEvent[] = [];
   for (const event of events) {
     const candidate = [...current, event];
-    const size = byteLength({ schema_version: 1, sent_at: now().toISOString(), events: candidate });
+    const size = byteLength({ schema_version: SCHEMA_VERSION, sent_at: now().toISOString(), events: candidate });
     if (current.length >= MAX_EVENTS || size > MAX_BATCH_BYTES) {
       if (current.length) result.push(current);
       current = [event];
@@ -274,7 +317,7 @@ function inferSurface(accept: PulseAcceptFamily): PulseSurface {
   return 'other';
 }
 
-function header(headers: HeaderValues | undefined, name: string): string {
+function header(headers: PulseHeaderValues | undefined, name: string): string {
   if (!headers) return '';
   if ('get' in headers && typeof headers.get === 'function') return headers.get(name) ?? '';
   const record = headers as Record<string, string | string[] | undefined>;
@@ -283,13 +326,39 @@ function header(headers: HeaderValues | undefined, name: string): string {
   return Array.isArray(value) ? value[0] ?? '' : value ?? '';
 }
 
+function canonicalPage(input: string | undefined, headers: PulseHeaderValues | undefined): { url: string; path: string } | null {
+  const raw = String(input ?? '').trim();
+  if (!raw || raw.length > 4096) return null;
+  try {
+    const forwardedProto = header(headers, 'x-forwarded-proto').split(',')[0]?.trim().toLowerCase();
+    const protocol = forwardedProto === 'http' || forwardedProto === 'https' ? forwardedProto : 'https';
+    const forwardedHost = header(headers, 'x-forwarded-host').split(',')[0]?.trim();
+    const host = forwardedHost || header(headers, 'host').trim();
+    const parsed = /^[a-z][a-z0-9+.-]*:/i.test(raw)
+      ? new URL(raw)
+      : host && raw.startsWith('/')
+        ? new URL(raw, `${protocol}://${host}`)
+        : null;
+    if (!parsed || (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) return null;
+    parsed.search = '';
+    parsed.hash = '';
+    const path = parsed.pathname !== '/' ? parsed.pathname.replace(/\/+$/, '') || '/' : '/';
+    const url = `${parsed.protocol}//${parsed.host.toLowerCase()}${path}`;
+    if (url.length > 2048 || path.length > 1024) return null;
+
+    return { url, path };
+  } catch {
+    return null;
+  }
+}
+
 function canonicalIp(input: string): string {
   const ip = String(input).split(',')[0]?.trim() ?? '';
-  return isIP(ip) ? ip.toLowerCase() : 'unknown';
+  return isIP(ip) ? ip.toLowerCase() : '';
 }
 
 function canonicalUserAgent(input: string): string {
-  return String(input).trim().slice(0, 1024) || 'unknown';
+  return String(input).trim().slice(0, 1024);
 }
 
 function isApiKey(input: string): boolean {
