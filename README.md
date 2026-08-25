@@ -4,7 +4,7 @@
 
 # Apostl Pulse SDK
 
-See every AI agent visit. Measure how agents interact with your website, docs, APIs, and machine-readable surfaces.
+See every AI agent visit. Measure how agents interact with your website, docs, or APIs.
 
 Pulse works as a middleware to track any agent-first endpoint:
 - Markdown-supported pages
