@@ -25,6 +25,7 @@ test('accepts and flushes a 250 events-per-second envelope without loss', async 
       userAgent: 'Codex/1.0',
       accept: 'text/markdown',
       ip: `198.51.100.${index % 255}`,
+      url: 'https://example.test/docs/load',
       surface: 'markdown',
       surfaceName: 'load-test',
     });
