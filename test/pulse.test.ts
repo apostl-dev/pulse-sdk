@@ -120,7 +120,15 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 200, 'https://example.test/assets/app.js');
   request('GET', 200, 'https://example.test/favicon.ico');
   request('GET', 200, 'https://example.test/health');
-  request('GET', 200, 'https://example.test/api/private');
+  request('HEAD', 304, 'https://example.test/api/turnstile-config');
+  request('GET', 200, 'https://example.test/api/auth/session');
+  request('GET', 200, 'https://example.test/api/forgot-password');
+  request('GET', 200, 'https://example.test/api/reset-password');
+  request('GET', 200, 'https://example.test/api/profile');
+  request('GET', 200, 'https://example.test/api/password');
+  request('GET', 200, 'https://example.test/api/v1/agent/projects');
+  request('GET', 200, 'https://example.test/agent/authorize/secret');
+  request('GET', 200, 'https://example.test/email/verify');
   request('GET', 200, 'https://example.test/auth/login');
   request('GET', 200, 'https://example.test/dashboard');
   pulse.observeRequest({ method: 'POST', statusCode: 201, userAgent: 'Claude-Code/1.0', accept: 'text/html', ip: '203.0.113.42', url: 'https://example.test/docs', eligible: true });
@@ -131,6 +139,8 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
     '/docs',
     '/llms.txt',
     '/missing',
+    '/health',
+    '/api/turnstile-config',
   ]);
 });
 
@@ -148,6 +158,33 @@ test('batches at 50 events and reports bounded queue overflow', async () => {
   assert.equal(pulse.diagnostics().droppedOverflow, 50);
   await pulse.flush();
   assert.deepEqual(sizes, Array(10).fill(50));
+});
+
+test('drains observations added while a delivery is already in flight', async () => {
+  const delivered: string[] = [];
+  let releaseFirst!: () => void;
+  const firstDelivery = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const pulse = createPulse({
+    ...credentials,
+    fetch: async (_url, init) => {
+      delivered.push(String(init?.body));
+      if (delivered.length === 1) await firstDelivery;
+      return new Response('{}', { status: 202 });
+    },
+  });
+
+  pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'curl/8.7.1', accept: '*/*', ip: '203.0.113.42', url: 'https://example.test/health' });
+  const firstFlush = pulse.flush();
+  pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'curl/8.7.1', accept: '*/*', ip: '203.0.113.42', url: 'https://example.test/openapi.json' });
+  const joinedFlush = pulse.flush();
+  releaseFirst();
+  await Promise.all([firstFlush, joinedFlush]);
+
+  assert.equal(delivered.length, 2);
+  assert.match(delivered[0]!, /"page_path":"\/health"/);
+  assert.match(delivered[1]!, /"page_path":"\/openapi\.json"/);
+  assert.equal(pulse.diagnostics().queued, 0);
+  assert.equal(pulse.diagnostics().sent, 2);
 });
 
 test('retries only 429 and 5xx, with at most three attempts', async () => {

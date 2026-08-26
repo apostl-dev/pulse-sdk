@@ -10,4 +10,7 @@ test('README sends first-time agents through the secret-safe setup helper', asyn
   assert.match(readme, /real origin you can deploy/i);
   assert.doesNotMatch(readme, /curl -X POST https:\/\/platform\.apostl\.dev\/api\/v1\/pulse\/setups/);
   assert.doesNotMatch(readme, /connect https:\/\/docs\.example\.com/);
+  assert.match(readme, /30-minute inactivity window/i);
+  assert.match(readme, /two distinct machine-readable surfaces/i);
+  assert.match(readme, /public health and API GET\/HEAD requests/i);
 });

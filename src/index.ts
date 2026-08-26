@@ -88,8 +88,9 @@ const MAX_BATCH_BYTES = 256 * 1024;
 const MAX_EVENT_BYTES = 16 * 1024;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 const ALLOWED_SURFACES = new Set<PulseSurface>(['html', 'markdown', 'llms', 'mcp', 'skill', 'api', 'other']);
-const PRIVATE_PAGE_PREFIXES = ['/api', '/auth', '/admin', '/dashboard', '/account', '/settings', '/projects'];
-const PRIVATE_PAGE_PATHS = new Set(['/health', '/login', '/logout', '/register', '/forgot-password', '/reset-password']);
+const PRIVATE_PAGE_PREFIXES = ['/auth', '/agent', '/email', '/admin', '/dashboard', '/account', '/settings', '/projects'];
+const PRIVATE_PAGE_PATHS = new Set(['/login', '/logout', '/register', '/forgot-password', '/reset-password']);
+const PRIVATE_API_PATH = /^\/api\/(?:v\d+\/)?(?:auth|oauth|login|logout|register|forgot-password|reset-password|password|profile|me|email|agent|admin|account|settings|projects|users?|sessions?|tokens?|billing)(?:\/|$)/i;
 const ASSET_EXTENSION = /\.(?:avif|bmp|bz2|cjs|css|eot|gif|gz|ico|jpe?g|js|map|mjs|mp3|mp4|ogg|pdf|png|svg|tar|tiff?|ttf|wasm|wav|webm|webp|woff2?|zip|7z)$/i;
 export const PULSE_VERIFICATION_CHALLENGE_HEADER = 'x-apostl-pulse-challenge';
 export const PULSE_VERIFICATION_PROOF_HEADER = 'x-apostl-pulse-proof';
@@ -197,16 +198,24 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   }
 
   async function flush(): Promise<void> {
-    if (!enabled || flushing || queue.length === 0) return flushing ?? Promise.resolve();
+    if (!enabled) return;
+    if (flushing) {
+      await flushing;
+      if (queue.length > 0) await flush();
+      return;
+    }
+    if (queue.length === 0) return;
     flushing = (async () => {
-      const pending = queue.splice(0, queue.length);
-      for (const batch of batches(pending, now)) {
-        const delivered = await deliver(batch);
-        if (delivered) counters.sent += batch.length;
-        else counters.droppedDelivery += batch.length;
+      while (queue.length > 0) {
+        const pending = queue.splice(0, queue.length);
+        for (const batch of batches(pending, now)) {
+          const delivered = await deliver(batch);
+          if (delivered) counters.sent += batch.length;
+          else counters.droppedDelivery += batch.length;
+        }
       }
     })().finally(() => { flushing = null; });
-    return flushing;
+    await flushing;
   }
 
   async function deliver(events: PulseEvent[]): Promise<boolean> {
@@ -255,7 +264,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
 function isPublicPage(method: string, statusCode: number, pagePath: string): boolean {
   if (!['GET', 'HEAD'].includes(method) || statusCode < 200 || statusCode >= 500) return false;
   const normalizedPath = pagePath.toLowerCase();
-  if (PRIVATE_PAGE_PATHS.has(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
+  if (PRIVATE_PAGE_PATHS.has(normalizedPath) || PRIVATE_API_PATH.test(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
 
   return !PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
 }
