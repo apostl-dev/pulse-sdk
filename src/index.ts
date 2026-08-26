@@ -275,12 +275,12 @@ function isPublicPage(method: string, statusCode: number, pagePath: string, publ
 
   if (PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))) return false;
 
-  return !normalizedPath.startsWith('/api/') || publicApiRoute;
+  return (normalizedPath !== '/api' && !normalizedPath.startsWith('/api/')) || publicApiRoute;
 }
 
 function isPublicApiRoute(pagePath: string, publicApiPrefixes: string[]): boolean {
   const normalizedPath = pagePath.toLowerCase();
-  if (!normalizedPath.startsWith('/api/') || PRIVATE_API_PATH.test(normalizedPath)) return false;
+  if (normalizedPath === '/api' || !normalizedPath.startsWith('/api/') || PRIVATE_API_PATH.test(normalizedPath)) return false;
   if (SAFE_PUBLIC_API_PATHS.has(normalizedPath)) return true;
 
   return publicApiPrefixes.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));

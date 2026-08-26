@@ -122,6 +122,7 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 200, 'https://example.test/favicon.ico');
   request('GET', 200, 'https://example.test/health');
   request('HEAD', 304, 'https://example.test/api/turnstile-config');
+  request('GET', 200, 'https://example.test/api');
   request('GET', 200, 'https://example.test/api/orders/123');
   request('GET', 200, 'https://example.test/api/public/catalog');
   request('GET', 200, 'https://example.test/api/accounts');
