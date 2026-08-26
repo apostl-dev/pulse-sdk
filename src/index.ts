@@ -220,16 +220,16 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       while (queue.length > 0) {
         const pending = queue.splice(0, queue.length);
         for (const batch of batches(pending, now)) {
-          const delivered = await deliver(batch);
-          if (delivered) counters.sent += batch.length;
-          else counters.droppedDelivery += batch.length;
+          const delivery = await deliver(batch);
+          counters.sent += delivery.sent;
+          counters.droppedDelivery += delivery.dropped;
         }
       }
     })().finally(() => { flushing = null; });
     await flushing;
   }
 
-  async function deliver(events: PulseEvent[]): Promise<boolean> {
+  async function deliver(events: PulseEvent[]): Promise<{ sent: number; dropped: number }> {
     const body = JSON.stringify({ schema_version: SCHEMA_VERSION, sent_at: now().toISOString(), events });
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       const controller = new AbortController();
@@ -242,21 +242,46 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
           signal: controller.signal,
         });
         if (response.status === 202) {
-          counters.lastError = null;
-          return true;
+          const acknowledgement = await response.json().catch(() => null) as {
+            accepted_event_ids?: unknown;
+            rejected?: unknown;
+          } | null;
+          const acceptedIds = Array.isArray(acknowledgement?.accepted_event_ids)
+            ? new Set(acknowledgement.accepted_event_ids.filter((value): value is string => typeof value === 'string'))
+            : null;
+          const rejected = Array.isArray(acknowledgement?.rejected) ? acknowledgement.rejected : null;
+          if (acceptedIds === null && rejected === null) {
+            counters.lastError = null;
+            return { sent: events.length, dropped: 0 };
+          }
+          const sent = acceptedIds === null
+            ? Math.max(0, events.length - Math.min(events.length, rejected?.length ?? 0))
+            : events.filter((event) => acceptedIds.has(event.event_id)).length;
+          const dropped = events.length - sent;
+          if (dropped === 0) {
+            counters.lastError = null;
+          } else {
+            const firstRejected = rejected?.[0];
+            const code = firstRejected && typeof firstRejected === 'object' && 'code' in firstRejected
+              ? safeLabel(String(firstRejected.code), 'unknown')
+              : 'unacknowledged-event';
+            counters.lastError = `rejected_${code}`;
+          }
+
+          return { sent, dropped };
         }
         const retryable = response.status === 429 || response.status >= 500;
         counters.lastError = `http_${response.status}`;
-        if (!retryable || attempt === 3) return false;
+        if (!retryable || attempt === 3) return { sent: 0, dropped: events.length };
       } catch (error) {
         counters.lastError = safeError(error);
-        return false;
+        return { sent: 0, dropped: events.length };
       } finally {
         clearTimeout(timer);
       }
       await sleep(Math.floor((50 * (2 ** (attempt - 1))) + random() * 100));
     }
-    return false;
+    return { sent: 0, dropped: events.length };
   }
 
   function diagnostics(): PulseDiagnostics {
