@@ -225,6 +225,35 @@ test('retries only 429 and 5xx, with at most three attempts', async () => {
   assert.equal(notRetrying.diagnostics().droppedDelivery, 1);
 });
 
+test('does not count HTTP 202 events rejected by ingest as sent', async () => {
+  const pulse = createPulse({
+    ...credentials,
+    fetch: async (_url, init) => {
+      const events = JSON.parse(String(init?.body)).events as Array<{ event_id: string }>;
+
+      return new Response(JSON.stringify({
+        accepted_event_ids: [],
+        rejected: events.map((event, index) => ({ index, event_id: event.event_id, code: 'invalid_event' })),
+      }), { status: 202, headers: { 'content-type': 'application/json' } });
+    },
+  });
+  pulse.observeRequest({
+    method: 'GET',
+    statusCode: 200,
+    userAgent: 'curl/8.7.1',
+    accept: '*/*',
+    ip: '203.0.113.42',
+    url: 'https://example.test/openapi.json',
+    surface: 'api',
+  });
+
+  await pulse.flush();
+
+  assert.equal(pulse.diagnostics().sent, 0);
+  assert.equal(pulse.diagnostics().droppedDelivery, 1);
+  assert.equal(pulse.diagnostics().lastError, 'rejected_invalid_event');
+});
+
 test('times out delivery after one second and never throws into the host app', async () => {
   const pulse = createPulse({
     ...credentials,
