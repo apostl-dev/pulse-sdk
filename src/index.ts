@@ -270,7 +270,8 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
 
 function isPublicPage(method: string, statusCode: number, pagePath: string, publicApiRoute: boolean): boolean {
   if (!['GET', 'HEAD'].includes(method) || statusCode < 200 || statusCode >= 500) return false;
-  const normalizedPath = pagePath.toLowerCase();
+  const normalizedPath = normalizePrivacyPath(pagePath);
+  if (!normalizedPath) return false;
   if (PRIVATE_PAGE_PATHS.has(normalizedPath) || PRIVATE_API_PATH.test(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
 
   if (PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))) return false;
@@ -279,7 +280,8 @@ function isPublicPage(method: string, statusCode: number, pagePath: string, publ
 }
 
 function isPublicApiRoute(pagePath: string, publicApiPrefixes: string[]): boolean {
-  const normalizedPath = pagePath.toLowerCase();
+  const normalizedPath = normalizePrivacyPath(pagePath);
+  if (!normalizedPath) return false;
   if (normalizedPath === '/api' || !normalizedPath.startsWith('/api/') || PRIVATE_API_PATH.test(normalizedPath)) return false;
   if (SAFE_PUBLIC_API_PATHS.has(normalizedPath)) return true;
 
@@ -290,9 +292,33 @@ function normalizePublicApiPrefixes(prefixes: string[] | undefined): string[] {
   if (!Array.isArray(prefixes)) return [];
 
   return [...new Set(prefixes
-    .map((prefix) => String(prefix).trim().toLowerCase().replace(/\/+$/, ''))
-    .filter((prefix) => /^\/api\/[a-z0-9._~!$&'()*+,;=:@%/-]+$/.test(prefix) && !PRIVATE_API_PATH.test(prefix)))]
+    .map((prefix) => normalizePrivacyPath(String(prefix).trim().replace(/\/+$/, '')))
+    .filter((prefix): prefix is string => prefix !== null
+      && /^\/api\/[a-z0-9._~!$&'()*+,;=:@/-]+$/.test(prefix)
+      && !PRIVATE_API_PATH.test(prefix)))]
     .slice(0, 50);
+}
+
+function normalizePrivacyPath(pagePath: string): string | null {
+  if (/%(?![0-9a-f]{2})/i.test(pagePath)) return null;
+
+  let decoded = pagePath;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return null;
+    }
+    if (next === decoded) break;
+    decoded = next;
+  }
+  if (/%[0-9a-f]{2}/i.test(decoded)
+    || /[\u0000-\u001f\u007f]/.test(decoded)
+    || /\/(?:\.{1,2})(?:\/|$)/.test(decoded)) return null;
+
+  const normalized = decoded.replace(/\/+/g, '/').toLowerCase();
+  return normalized.startsWith('/') ? normalized : null;
 }
 
 function batches(events: PulseEvent[], now: () => Date): PulseEvent[][] {

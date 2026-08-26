@@ -129,6 +129,10 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 200, 'https://example.test/api/v1/teams/42/settings');
   request('GET', 200, 'https://example.test/api/organizations/7/accounts/me');
   request('GET', 200, 'https://example.test/api/internal/oauth/callback');
+  request('GET', 200, 'https://example.test/%61uth/callback');
+  request('GET', 200, 'https://example.test/api//auth/callback');
+  request('GET', 200, 'https://example.test/api/public/%252e%252e/auth/callback');
+  request('GET', 200, 'https://example.test/api/public/%zz');
   request('GET', 200, 'https://example.test/api/auth/session');
   request('GET', 200, 'https://example.test/api/forgot-password');
   request('GET', 200, 'https://example.test/api/reset-password');
