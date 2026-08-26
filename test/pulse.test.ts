@@ -101,6 +101,7 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   let body = '';
   const pulse = createPulse({
     ...credentials,
+    publicApiPrefixes: ['/api/public', '/api/accounts'],
     fetch: async (_url, init) => { body = String(init?.body); return new Response('{}', { status: 202 }); },
   });
   const request = (method: string, statusCode: number, url: string) => pulse.observeRequest({
@@ -121,6 +122,9 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 200, 'https://example.test/favicon.ico');
   request('GET', 200, 'https://example.test/health');
   request('HEAD', 304, 'https://example.test/api/turnstile-config');
+  request('GET', 200, 'https://example.test/api/orders/123');
+  request('GET', 200, 'https://example.test/api/public/catalog');
+  request('GET', 200, 'https://example.test/api/accounts');
   request('GET', 200, 'https://example.test/api/auth/session');
   request('GET', 200, 'https://example.test/api/forgot-password');
   request('GET', 200, 'https://example.test/api/reset-password');
@@ -141,7 +145,11 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
     '/missing',
     '/health',
     '/api/turnstile-config',
+    '/api/public/catalog',
   ]);
+  const events = JSON.parse(body).events as Array<{ page_path: string; public_api_route: boolean }>;
+  assert.equal(events.find((event) => event.page_path === '/docs')?.public_api_route, false);
+  assert.equal(events.find((event) => event.page_path === '/api/public/catalog')?.public_api_route, true);
 });
 
 test('batches at 50 events and reports bounded queue overflow', async () => {

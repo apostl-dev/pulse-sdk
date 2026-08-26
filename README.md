@@ -33,6 +33,8 @@ const pulse = createPulse({
   endpoint: 'https://ingest.apostl.dev',
   apiKey: process.env.APOSTL_PULSE_API_KEY,
   environment: 'production',
+  // Unknown /api routes fail closed. Add only routes that are intentionally public.
+  publicApiPrefixes: ['/api/public'],
 });
 
 pulse.observeRequest({
@@ -47,6 +49,7 @@ pulse.observeRequest({
 * Pulse SDK sends the trusted client IP and User-Agent data to [Apostl website](https://apostl.dev).
 * It records the canonical origin and path only. Query parameters, fragments, request bodies, cookies, and authorization headers are not sent.
 * Public health and API GET/HEAD requests are included; auth/account routes, assets, mutations, and 5xx responses are excluded.
+* `/api/mcp` and `/api/turnstile-config` are safe defaults. Other `/api/*` routes are ignored unless their public prefix is listed in `publicApiPrefixes`.
 * Use `cf-connecting-ip` when your deployment trusts Cloudflare.
 * Keep `APOSTL_PULSE_API_KEY` in the server runtime; never expose it through browser bundles or public environment variables.
 

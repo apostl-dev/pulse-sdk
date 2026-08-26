@@ -55,6 +55,8 @@ export interface CreatePulseOptions {
   queueLimit?: number;
   timeoutMs?: number;
   flushIntervalMs?: number;
+  /** Explicitly public API route prefixes. Unknown /api routes fail closed by default. */
+  publicApiPrefixes?: string[];
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   random?: () => number;
@@ -79,6 +81,7 @@ interface PulseEvent {
   status_code: number;
   duration_ms: number | null;
   eligible: boolean;
+  public_api_route: boolean;
   classification_reason: string;
 }
 
@@ -88,9 +91,10 @@ const MAX_BATCH_BYTES = 256 * 1024;
 const MAX_EVENT_BYTES = 16 * 1024;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 const ALLOWED_SURFACES = new Set<PulseSurface>(['html', 'markdown', 'llms', 'mcp', 'skill', 'api', 'other']);
-const PRIVATE_PAGE_PREFIXES = ['/auth', '/agent', '/email', '/admin', '/dashboard', '/account', '/settings', '/projects'];
+const PRIVATE_PAGE_PREFIXES = ['/auth', '/oauth', '/agent', '/email', '/admin', '/dashboard', '/account', '/accounts', '/profile', '/me', '/password', '/settings', '/project', '/projects', '/users', '/sessions', '/tokens', '/billing'];
 const PRIVATE_PAGE_PATHS = new Set(['/login', '/logout', '/register', '/forgot-password', '/reset-password']);
-const PRIVATE_API_PATH = /^\/api\/(?:v\d+\/)?(?:auth|oauth|login|logout|register|forgot-password|reset-password|password|profile|me|email|agent|admin|account|settings|projects|users?|sessions?|tokens?|billing)(?:\/|$)/i;
+const PRIVATE_API_PATH = /^\/api\/(?:v\d+\/)?(?:auth|oauth|logins?|logouts?|register|forgot-password|reset-password|passwords?|profiles?|me|emails?|agents?|admins?|accounts?|settings?|projects?|users?|sessions?|tokens?|billings?)(?:\/|$)/i;
+const SAFE_PUBLIC_API_PATHS = new Set(['/api/mcp', '/api/turnstile-config']);
 const ASSET_EXTENSION = /\.(?:avif|bmp|bz2|cjs|css|eot|gif|gz|ico|jpe?g|js|map|mjs|mp3|mp4|ogg|pdf|png|svg|tar|tiff?|ttf|wasm|wav|webm|webp|woff2?|zip|7z)$/i;
 export const PULSE_VERIFICATION_CHALLENGE_HEADER = 'x-apostl-pulse-challenge';
 export const PULSE_VERIFICATION_PROOF_HEADER = 'x-apostl-pulse-proof';
@@ -107,6 +111,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   const now = options.now ?? (() => new Date());
   const fetcher = options.fetch ?? globalThis.fetch;
   const random = options.random ?? Math.random;
+  const publicApiPrefixes = normalizePublicApiPrefixes(options.publicApiPrefixes);
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const queue: PulseEvent[] = [];
   let flushing: Promise<void> | null = null;
@@ -145,7 +150,8 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
         counters.droppedInvalid += 1;
         return;
       }
-      const eligible = isPublicPage(method, statusCode, page.path);
+      const publicApiRoute = isPublicApiRoute(page.path, publicApiPrefixes);
+      const eligible = isPublicPage(method, statusCode, page.path, publicApiRoute);
       if (!eligible) return;
       const identity = JSON.stringify([environment, ip, normalizedUserAgent, epoch]);
       const sessionId = createHmac('sha256', apiKey).update(identity).digest('hex');
@@ -167,6 +173,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
         status_code: statusCode,
         duration_ms: Number.isFinite(input.durationMs) ? clamp(Number(input.durationMs), 0, 300_000) : null,
         eligible: true,
+        public_api_route: publicApiRoute,
         classification_reason: classification.reason,
       };
       if (byteLength(event) > MAX_EVENT_BYTES) {
@@ -261,12 +268,31 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   return { observeRequest, verificationResponse, flush, diagnostics, close };
 }
 
-function isPublicPage(method: string, statusCode: number, pagePath: string): boolean {
+function isPublicPage(method: string, statusCode: number, pagePath: string, publicApiRoute: boolean): boolean {
   if (!['GET', 'HEAD'].includes(method) || statusCode < 200 || statusCode >= 500) return false;
   const normalizedPath = pagePath.toLowerCase();
   if (PRIVATE_PAGE_PATHS.has(normalizedPath) || PRIVATE_API_PATH.test(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
 
-  return !PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
+  if (PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))) return false;
+
+  return !normalizedPath.startsWith('/api/') || publicApiRoute;
+}
+
+function isPublicApiRoute(pagePath: string, publicApiPrefixes: string[]): boolean {
+  const normalizedPath = pagePath.toLowerCase();
+  if (!normalizedPath.startsWith('/api/') || PRIVATE_API_PATH.test(normalizedPath)) return false;
+  if (SAFE_PUBLIC_API_PATHS.has(normalizedPath)) return true;
+
+  return publicApiPrefixes.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
+}
+
+function normalizePublicApiPrefixes(prefixes: string[] | undefined): string[] {
+  if (!Array.isArray(prefixes)) return [];
+
+  return [...new Set(prefixes
+    .map((prefix) => String(prefix).trim().toLowerCase().replace(/\/+$/, ''))
+    .filter((prefix) => /^\/api\/[a-z0-9._~!$&'()*+,;=:@%/-]+$/.test(prefix) && !PRIVATE_API_PATH.test(prefix)))]
+    .slice(0, 50);
 }
 
 function batches(events: PulseEvent[], now: () => Date): PulseEvent[][] {
