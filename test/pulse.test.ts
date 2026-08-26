@@ -118,6 +118,7 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 499, 'https://example.test/missing');
   request('GET', 500, 'https://example.test/server-error');
   request('POST', 201, 'https://example.test/docs');
+  request('TRACE', 200, 'https://example.test/trace');
   request('GET', 200, 'https://example.test/assets/app.js');
   request('GET', 200, 'https://example.test/favicon.ico');
   request('GET', 200, 'https://example.test/health');

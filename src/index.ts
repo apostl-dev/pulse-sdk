@@ -138,7 +138,11 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       const accept = input.accept ?? header(input.headers, 'accept');
       const classification = classify(userAgent, accept);
       const acceptFamily = classifyAccept(accept);
-      const method = ALLOWED_METHODS.has(String(input.method).toUpperCase()) ? String(input.method).toUpperCase() : 'GET';
+      const method = input.method === undefined ? 'GET' : String(input.method).toUpperCase();
+      if (!ALLOWED_METHODS.has(method)) {
+        counters.droppedInvalid += 1;
+        return;
+      }
       const statusCode = clamp(Number(input.statusCode ?? 200), 100, 599);
       const surface = input.surface && ALLOWED_SURFACES.has(input.surface) ? input.surface : inferSurface(acceptFamily);
       const surfaceName = safeLabel(input.surfaceName ?? 'other', 'other');
