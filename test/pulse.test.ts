@@ -101,7 +101,7 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   let body = '';
   const pulse = createPulse({
     ...credentials,
-    publicApiPrefixes: ['/api/public', '/api/accounts'],
+    publicApiPrefixes: ['/api/public', '/api/accounts', '/api/v1/teams', '/api/organizations', '/api/internal'],
     fetch: async (_url, init) => { body = String(init?.body); return new Response('{}', { status: 202 }); },
   });
   const request = (method: string, statusCode: number, url: string) => pulse.observeRequest({
@@ -125,6 +125,9 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 200, 'https://example.test/api/orders/123');
   request('GET', 200, 'https://example.test/api/public/catalog');
   request('GET', 200, 'https://example.test/api/accounts');
+  request('GET', 200, 'https://example.test/api/v1/teams/42/settings');
+  request('GET', 200, 'https://example.test/api/organizations/7/accounts/me');
+  request('GET', 200, 'https://example.test/api/internal/oauth/callback');
   request('GET', 200, 'https://example.test/api/auth/session');
   request('GET', 200, 'https://example.test/api/forgot-password');
   request('GET', 200, 'https://example.test/api/reset-password');
