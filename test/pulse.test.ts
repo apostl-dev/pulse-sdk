@@ -101,6 +101,7 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   let body = '';
   const pulse = createPulse({
     ...credentials,
+    publicApiPrefixes: ['/api/public', '/api/accounts', '/api/v1/teams', '/api/organizations', '/api/internal'],
     fetch: async (_url, init) => { body = String(init?.body); return new Response('{}', { status: 202 }); },
   });
   const request = (method: string, statusCode: number, url: string) => pulse.observeRequest({
@@ -117,10 +118,30 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
   request('GET', 499, 'https://example.test/missing');
   request('GET', 500, 'https://example.test/server-error');
   request('POST', 201, 'https://example.test/docs');
+  request('TRACE', 200, 'https://example.test/trace');
   request('GET', 200, 'https://example.test/assets/app.js');
   request('GET', 200, 'https://example.test/favicon.ico');
   request('GET', 200, 'https://example.test/health');
-  request('GET', 200, 'https://example.test/api/private');
+  request('HEAD', 304, 'https://example.test/api/turnstile-config');
+  request('GET', 200, 'https://example.test/api');
+  request('GET', 200, 'https://example.test/api/orders/123');
+  request('GET', 200, 'https://example.test/api/public/catalog');
+  request('GET', 200, 'https://example.test/api/accounts');
+  request('GET', 200, 'https://example.test/api/v1/teams/42/settings');
+  request('GET', 200, 'https://example.test/api/organizations/7/accounts/me');
+  request('GET', 200, 'https://example.test/api/internal/oauth/callback');
+  request('GET', 200, 'https://example.test/%61uth/callback');
+  request('GET', 200, 'https://example.test/api//auth/callback');
+  request('GET', 200, 'https://example.test/api/public/%252e%252e/auth/callback');
+  request('GET', 200, 'https://example.test/api/public/%zz');
+  request('GET', 200, 'https://example.test/api/auth/session');
+  request('GET', 200, 'https://example.test/api/forgot-password');
+  request('GET', 200, 'https://example.test/api/reset-password');
+  request('GET', 200, 'https://example.test/api/profile');
+  request('GET', 200, 'https://example.test/api/password');
+  request('GET', 200, 'https://example.test/api/v1/agent/projects');
+  request('GET', 200, 'https://example.test/agent/authorize/secret');
+  request('GET', 200, 'https://example.test/email/verify');
   request('GET', 200, 'https://example.test/auth/login');
   request('GET', 200, 'https://example.test/dashboard');
   pulse.observeRequest({ method: 'POST', statusCode: 201, userAgent: 'Claude-Code/1.0', accept: 'text/html', ip: '203.0.113.42', url: 'https://example.test/docs', eligible: true });
@@ -131,7 +152,13 @@ test('counts public GET and HEAD pages with 2xx through 4xx while excluding asse
     '/docs',
     '/llms.txt',
     '/missing',
+    '/health',
+    '/api/turnstile-config',
+    '/api/public/catalog',
   ]);
+  const events = JSON.parse(body).events as Array<{ page_path: string; public_api_route: boolean }>;
+  assert.equal(events.find((event) => event.page_path === '/docs')?.public_api_route, false);
+  assert.equal(events.find((event) => event.page_path === '/api/public/catalog')?.public_api_route, true);
 });
 
 test('batches at 50 events and reports bounded queue overflow', async () => {
@@ -148,6 +175,33 @@ test('batches at 50 events and reports bounded queue overflow', async () => {
   assert.equal(pulse.diagnostics().droppedOverflow, 50);
   await pulse.flush();
   assert.deepEqual(sizes, Array(10).fill(50));
+});
+
+test('drains observations added while a delivery is already in flight', async () => {
+  const delivered: string[] = [];
+  let releaseFirst!: () => void;
+  const firstDelivery = new Promise<void>((resolve) => { releaseFirst = resolve; });
+  const pulse = createPulse({
+    ...credentials,
+    fetch: async (_url, init) => {
+      delivered.push(String(init?.body));
+      if (delivered.length === 1) await firstDelivery;
+      return new Response('{}', { status: 202 });
+    },
+  });
+
+  pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'curl/8.7.1', accept: '*/*', ip: '203.0.113.42', url: 'https://example.test/health' });
+  const firstFlush = pulse.flush();
+  pulse.observeRequest({ method: 'GET', statusCode: 200, userAgent: 'curl/8.7.1', accept: '*/*', ip: '203.0.113.42', url: 'https://example.test/openapi.json' });
+  const joinedFlush = pulse.flush();
+  releaseFirst();
+  await Promise.all([firstFlush, joinedFlush]);
+
+  assert.equal(delivered.length, 2);
+  assert.match(delivered[0]!, /"page_path":"\/health"/);
+  assert.match(delivered[1]!, /"page_path":"\/openapi\.json"/);
+  assert.equal(pulse.diagnostics().queued, 0);
+  assert.equal(pulse.diagnostics().sent, 2);
 });
 
 test('retries only 429 and 5xx, with at most three attempts', async () => {

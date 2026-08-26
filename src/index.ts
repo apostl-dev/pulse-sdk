@@ -55,6 +55,8 @@ export interface CreatePulseOptions {
   queueLimit?: number;
   timeoutMs?: number;
   flushIntervalMs?: number;
+  /** Explicitly public API route prefixes. Unknown /api routes fail closed by default. */
+  publicApiPrefixes?: string[];
   fetch?: typeof globalThis.fetch;
   now?: () => Date;
   random?: () => number;
@@ -79,6 +81,7 @@ interface PulseEvent {
   status_code: number;
   duration_ms: number | null;
   eligible: boolean;
+  public_api_route: boolean;
   classification_reason: string;
 }
 
@@ -88,8 +91,10 @@ const MAX_BATCH_BYTES = 256 * 1024;
 const MAX_EVENT_BYTES = 16 * 1024;
 const ALLOWED_METHODS = new Set(['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']);
 const ALLOWED_SURFACES = new Set<PulseSurface>(['html', 'markdown', 'llms', 'mcp', 'skill', 'api', 'other']);
-const PRIVATE_PAGE_PREFIXES = ['/api', '/auth', '/admin', '/dashboard', '/account', '/settings', '/projects'];
-const PRIVATE_PAGE_PATHS = new Set(['/health', '/login', '/logout', '/register', '/forgot-password', '/reset-password']);
+const PRIVATE_PAGE_PREFIXES = ['/auth', '/oauth', '/agent', '/email', '/admin', '/dashboard', '/account', '/accounts', '/profile', '/me', '/password', '/settings', '/project', '/projects', '/users', '/sessions', '/tokens', '/billing'];
+const PRIVATE_PAGE_PATHS = new Set(['/login', '/logout', '/register', '/forgot-password', '/reset-password']);
+const PRIVATE_API_PATH = /^\/api\/(?:v\d+\/)?(?:[^/]+\/)*(?:auth|oauth|logins?|logouts?|register|forgot-password|reset-password|passwords?|profiles?|me|emails?|agents?|admins?|accounts?|settings?|projects?|users?|sessions?|tokens?|billings?)(?:\/|$)/i;
+const SAFE_PUBLIC_API_PATHS = new Set(['/api/mcp', '/api/turnstile-config']);
 const ASSET_EXTENSION = /\.(?:avif|bmp|bz2|cjs|css|eot|gif|gz|ico|jpe?g|js|map|mjs|mp3|mp4|ogg|pdf|png|svg|tar|tiff?|ttf|wasm|wav|webm|webp|woff2?|zip|7z)$/i;
 export const PULSE_VERIFICATION_CHALLENGE_HEADER = 'x-apostl-pulse-challenge';
 export const PULSE_VERIFICATION_PROOF_HEADER = 'x-apostl-pulse-proof';
@@ -106,6 +111,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   const now = options.now ?? (() => new Date());
   const fetcher = options.fetch ?? globalThis.fetch;
   const random = options.random ?? Math.random;
+  const publicApiPrefixes = normalizePublicApiPrefixes(options.publicApiPrefixes);
   const sleep = options.sleep ?? ((milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds)));
   const queue: PulseEvent[] = [];
   let flushing: Promise<void> | null = null;
@@ -132,7 +138,11 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
       const accept = input.accept ?? header(input.headers, 'accept');
       const classification = classify(userAgent, accept);
       const acceptFamily = classifyAccept(accept);
-      const method = ALLOWED_METHODS.has(String(input.method).toUpperCase()) ? String(input.method).toUpperCase() : 'GET';
+      const method = input.method === undefined ? 'GET' : String(input.method).toUpperCase();
+      if (!ALLOWED_METHODS.has(method)) {
+        counters.droppedInvalid += 1;
+        return;
+      }
       const statusCode = clamp(Number(input.statusCode ?? 200), 100, 599);
       const surface = input.surface && ALLOWED_SURFACES.has(input.surface) ? input.surface : inferSurface(acceptFamily);
       const surfaceName = safeLabel(input.surfaceName ?? 'other', 'other');
@@ -144,7 +154,8 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
         counters.droppedInvalid += 1;
         return;
       }
-      const eligible = isPublicPage(method, statusCode, page.path);
+      const publicApiRoute = isPublicApiRoute(page.path, publicApiPrefixes);
+      const eligible = isPublicPage(method, statusCode, page.path, publicApiRoute);
       if (!eligible) return;
       const identity = JSON.stringify([environment, ip, normalizedUserAgent, epoch]);
       const sessionId = createHmac('sha256', apiKey).update(identity).digest('hex');
@@ -166,6 +177,7 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
         status_code: statusCode,
         duration_ms: Number.isFinite(input.durationMs) ? clamp(Number(input.durationMs), 0, 300_000) : null,
         eligible: true,
+        public_api_route: publicApiRoute,
         classification_reason: classification.reason,
       };
       if (byteLength(event) > MAX_EVENT_BYTES) {
@@ -197,16 +209,24 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   }
 
   async function flush(): Promise<void> {
-    if (!enabled || flushing || queue.length === 0) return flushing ?? Promise.resolve();
+    if (!enabled) return;
+    if (flushing) {
+      await flushing;
+      if (queue.length > 0) await flush();
+      return;
+    }
+    if (queue.length === 0) return;
     flushing = (async () => {
-      const pending = queue.splice(0, queue.length);
-      for (const batch of batches(pending, now)) {
-        const delivered = await deliver(batch);
-        if (delivered) counters.sent += batch.length;
-        else counters.droppedDelivery += batch.length;
+      while (queue.length > 0) {
+        const pending = queue.splice(0, queue.length);
+        for (const batch of batches(pending, now)) {
+          const delivered = await deliver(batch);
+          if (delivered) counters.sent += batch.length;
+          else counters.droppedDelivery += batch.length;
+        }
       }
     })().finally(() => { flushing = null; });
-    return flushing;
+    await flushing;
   }
 
   async function deliver(events: PulseEvent[]): Promise<boolean> {
@@ -252,12 +272,57 @@ export function createPulse(options: CreatePulseOptions = {}): PulseClient {
   return { observeRequest, verificationResponse, flush, diagnostics, close };
 }
 
-function isPublicPage(method: string, statusCode: number, pagePath: string): boolean {
+function isPublicPage(method: string, statusCode: number, pagePath: string, publicApiRoute: boolean): boolean {
   if (!['GET', 'HEAD'].includes(method) || statusCode < 200 || statusCode >= 500) return false;
-  const normalizedPath = pagePath.toLowerCase();
-  if (PRIVATE_PAGE_PATHS.has(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
+  const normalizedPath = normalizePrivacyPath(pagePath);
+  if (!normalizedPath) return false;
+  if (PRIVATE_PAGE_PATHS.has(normalizedPath) || PRIVATE_API_PATH.test(normalizedPath) || ASSET_EXTENSION.test(normalizedPath)) return false;
 
-  return !PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
+  if (PRIVATE_PAGE_PREFIXES.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`))) return false;
+
+  return (normalizedPath !== '/api' && !normalizedPath.startsWith('/api/')) || publicApiRoute;
+}
+
+function isPublicApiRoute(pagePath: string, publicApiPrefixes: string[]): boolean {
+  const normalizedPath = normalizePrivacyPath(pagePath);
+  if (!normalizedPath) return false;
+  if (normalizedPath === '/api' || !normalizedPath.startsWith('/api/') || PRIVATE_API_PATH.test(normalizedPath)) return false;
+  if (SAFE_PUBLIC_API_PATHS.has(normalizedPath)) return true;
+
+  return publicApiPrefixes.some((prefix) => normalizedPath === prefix || normalizedPath.startsWith(`${prefix}/`));
+}
+
+function normalizePublicApiPrefixes(prefixes: string[] | undefined): string[] {
+  if (!Array.isArray(prefixes)) return [];
+
+  return [...new Set(prefixes
+    .map((prefix) => normalizePrivacyPath(String(prefix).trim().replace(/\/+$/, '')))
+    .filter((prefix): prefix is string => prefix !== null
+      && /^\/api\/[a-z0-9._~!$&'()*+,;=:@/-]+$/.test(prefix)
+      && !PRIVATE_API_PATH.test(prefix)))]
+    .slice(0, 50);
+}
+
+function normalizePrivacyPath(pagePath: string): string | null {
+  if (/%(?![0-9a-f]{2})/i.test(pagePath)) return null;
+
+  let decoded = pagePath;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    let next: string;
+    try {
+      next = decodeURIComponent(decoded);
+    } catch {
+      return null;
+    }
+    if (next === decoded) break;
+    decoded = next;
+  }
+  if (/%[0-9a-f]{2}/i.test(decoded)
+    || /[\u0000-\u001f\u007f]/.test(decoded)
+    || /\/(?:\.{1,2})(?:\/|$)/.test(decoded)) return null;
+
+  const normalized = decoded.replace(/\/+/g, '/').toLowerCase();
+  return normalized.startsWith('/') ? normalized : null;
 }
 
 function batches(events: PulseEvent[], now: () => Date): PulseEvent[][] {

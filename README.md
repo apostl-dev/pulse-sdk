@@ -12,6 +12,10 @@ Pulse works as a middleware to track any agent-first endpoint:
 - API endpoints for agents
 - app routes for agents
 
+Pulse groups requests with the same project, trusted IP, and full User-Agent into one journey until a 30-minute inactivity window expires. Installations and origins connected to the same project stay in that journey.
+
+An exact `llms.txt` visit is immediate evidence. A generic non-browser client such as `curl` is also counted when it visits two distinct machine-readable surfaces within ten minutes—for example `openapi.json` and a Markdown page. This catches real tool-driven research even when the client does not announce an agent name.
+
 ## One-line Install
 
 ```sh
@@ -29,6 +33,8 @@ const pulse = createPulse({
   endpoint: 'https://ingest.apostl.dev',
   apiKey: process.env.APOSTL_PULSE_API_KEY,
   environment: 'production',
+  // Unknown /api routes fail closed. Add only routes that are intentionally public.
+  publicApiPrefixes: ['/api/public'],
 });
 
 pulse.observeRequest({
@@ -37,12 +43,13 @@ pulse.observeRequest({
   headers: request.headers,
   ip: clientIp, // resolve this from your trusted server or proxy
   url: request.url,
-  surface: 'markdown',
-  surfaceName: 'quickstart',
 });
 ```
 
 * Pulse SDK sends the trusted client IP and User-Agent data to [Apostl website](https://apostl.dev).
+* It records the canonical origin and path only. Query parameters, fragments, request bodies, cookies, and authorization headers are not sent.
+* Public health and API GET/HEAD requests are included; auth/account routes, assets, mutations, and 5xx responses are excluded.
+* `/api/mcp` and `/api/turnstile-config` are safe defaults. Other `/api/*` routes are ignored unless their public prefix is listed in `publicApiPrefixes`.
 * Use `cf-connecting-ip` when your deployment trusts Cloudflare.
 * Keep `APOSTL_PULSE_API_KEY` in the server runtime; never expose it through browser bundles or public environment variables.
 

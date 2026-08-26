@@ -63,12 +63,13 @@ test('production canary answers the signed challenge and sends the exact real re
   assert.equal(response.headers.get('x-apostl-pulse-page'), 'https://test-website.apostl.dev/llms.txt');
   assert.match(response.headers.get('x-apostl-pulse-proof') ?? '', /^v1:[0-9a-f]{64}$/);
 
-  await waitFor(() => batches.length === 1);
-  const serialized = JSON.stringify(batches[0]);
+  await waitFor(() => batches.some((batch) => JSON.stringify(batch).includes('Apostl-Pulse-Verifier/1.0')));
+  const serialized = JSON.stringify(batches.find((batch) => JSON.stringify(batch).includes('Apostl-Pulse-Verifier/1.0')));
   assert.match(serialized, /203\.0\.113\.42/);
   assert.match(serialized, /Apostl-Pulse-Verifier\/1\.0/);
   assert.match(serialized, /https:\/\/test-website\.apostl\.dev\/llms\.txt/);
   assert.doesNotMatch(serialized, /secret=removed/);
+  assert.ok(batches.some((batch) => JSON.stringify(batch).includes('"page_path":"/health"')));
 });
 
 async function availablePort(): Promise<number> {
