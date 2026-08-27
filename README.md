@@ -24,26 +24,79 @@ npm install @apostl-dev/pulse-sdk
 
 MIT-licensed [source code is on GitHub](https://github.com/apostl-dev/pulse-sdk).
 
-### Node
+## Copy-paste quickstarts
+
+Set `APOSTL_PULSE_ENDPOINT=https://ingest.apostl.dev` and
+`APOSTL_PULSE_API_KEY` in the server runtime. `createPulse()` reads both by
+default. Never expose the API key through client bundles, `NEXT_PUBLIC_*`, HTML,
+logs, or a public diagnostics response.
+
+### Node HTTP server
 
 ```ts
+import { createServer } from 'node:http';
 import { createPulse } from '@apostl-dev/pulse-sdk';
 
-const pulse = createPulse({
-  endpoint: 'https://ingest.apostl.dev',
-  apiKey: process.env.APOSTL_PULSE_API_KEY,
-  environment: 'production',
-  // Unknown /api routes fail closed. Add only routes that are intentionally public.
-  publicApiPrefixes: ['/api/public'],
+const pulse = createPulse();
+const server = createServer((request, response) => {
+  const startedAt = performance.now();
+  response.once('finish', () => {
+    const cloudflareIp = request.headers['cf-connecting-ip'];
+    pulse.observeRequest({
+      method: request.method,
+      statusCode: response.statusCode,
+      headers: request.headers,
+      // Trust this header only when the origin accepts traffic through Cloudflare.
+      ip: typeof cloudflareIp === 'string' ? cloudflareIp : request.socket.remoteAddress,
+      url: request.url,
+      durationMs: Math.round(performance.now() - startedAt),
+      surface: request.url?.startsWith('/llms.txt') ? 'llms' : 'other',
+      surfaceName: request.url?.startsWith('/llms.txt') ? 'llms-index' : 'other',
+    });
+  });
+
+  if (request.url?.startsWith('/llms.txt')) {
+    response.writeHead(200, { 'content-type': 'text/markdown; charset=utf-8' });
+    response.end('# Agent docs\n');
+    return;
+  }
+  response.writeHead(404).end();
 });
 
-pulse.observeRequest({
-  method: request.method,
-  statusCode: response.statusCode,
-  headers: request.headers,
-  ip: clientIp, // resolve this from your trusted server or proxy
-  url: request.url,
+server.listen(Number(process.env.PORT ?? 3000));
+process.on('SIGTERM', () => server.close(async () => {
+  await pulse.close();
+  process.exit(0);
+}));
+```
+
+### Express
+
+```ts
+import express from 'express';
+import { createPulse } from '@apostl-dev/pulse-sdk';
+import { pulseExpressMiddleware } from '@apostl-dev/pulse-sdk/express';
+
+const pulse = createPulse();
+const app = express();
+
+// Configure Express `trust proxy` only for the proxy/CDN you actually control.
+app.use(pulseExpressMiddleware(pulse, (request) => {
+  const path = (request.originalUrl ?? request.url ?? '').split('?')[0];
+  return path === '/llms.txt'
+    ? { surface: 'llms', surfaceName: 'llms-index' }
+    : { surface: 'other', surfaceName: 'other' };
+}));
+
+app.get('/llms.txt', (_request, response) => {
+  response.type('text/markdown').send('# Agent docs\n');
 });
+
+const server = app.listen(Number(process.env.PORT ?? 3000));
+process.on('SIGTERM', () => server.close(async () => {
+  await pulse.close();
+  process.exit(0);
+}));
 ```
 
 * Pulse SDK sends the trusted client IP and User-Agent data to [Apostl website](https://apostl.dev).
@@ -53,23 +106,48 @@ pulse.observeRequest({
 * Use `cf-connecting-ip` when your deployment trusts Cloudflare.
 * Keep `APOSTL_PULSE_API_KEY` in the server runtime; never expose it through browser bundles or public environment variables.
 
-### Express
+### Next.js App Router
+
+Create the server-only client in `lib/pulse.ts`:
 
 ```ts
-import { pulseExpressMiddleware } from '@apostl-dev/pulse-sdk/express';
+import 'server-only';
+import { createPulse } from '@apostl-dev/pulse-sdk';
 
-app.use(pulseExpressMiddleware(pulse));
+export const pulse = createPulse();
 ```
 
-### Next.js
+Wrap the real Route Handler in `app/llms.txt/route.ts`:
 
 ```ts
 import { withPulse } from '@apostl-dev/pulse-sdk/next';
+import { pulse } from '../../lib/pulse';
 
-export const GET = withPulse(pulse, async () => new Response(renderDocs(), {
-  headers: { 'content-type': 'text/html' },
-}));
+export const GET = withPulse(
+  pulse,
+  async () => new Response('# Agent docs\n', {
+    headers: { 'content-type': 'text/markdown; charset=utf-8' },
+  }),
+  () => ({ surface: 'llms', surfaceName: 'llms-index' }),
+);
 ```
+
+For a one-off test, a temporary protected diagnostics route may call
+`await pulse.flush()` and return `pulse.diagnostics()`. Remove or disable that
+route after validation; the counters are credential-free, but the endpoint is
+operational metadata and should not become a permanent public API.
+
+### Prove the first event
+
+1. Start the production build with both server environment variables present.
+2. Request the real public `/llms.txt` route with the deployment's trusted
+   client-IP header and a full User-Agent.
+3. Flush once from a private test hook or graceful shutdown.
+4. Check `pulse.diagnostics()`: `configured=true`, `accepted>=1`, `sent>=1`,
+   `droppedDelivery=0`, and `lastError=null`.
+
+`diagnostics()` returns counters only. It never returns the API key, captured
+headers, IP addresses, or request URLs.
 
 ## Setup for AI agents
 
