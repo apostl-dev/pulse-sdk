@@ -14,3 +14,16 @@ test('README sends first-time agents through the secret-safe setup helper', asyn
   assert.match(readme, /two distinct machine-readable surfaces/i);
   assert.match(readme, /public health and API GET\/HEAD requests/i);
 });
+
+test('README provides complete server-only recipes for Node, Express, and Next.js', async () => {
+  const readme = await readFile(new URL('../README.md', import.meta.url), 'utf8');
+
+  assert.match(readme, /response\.once\('finish'/);
+  assert.match(readme, /app\.use\(pulseExpressMiddleware\(pulse/);
+  assert.match(readme, /lib\/pulse\.ts/);
+  assert.match(readme, /app\/llms\.txt\/route\.ts/);
+  assert.match(readme, /from '\.\.\/\.\.\/lib\/pulse'/);
+  assert.match(readme, /await pulse\.flush\(\)/);
+  assert.match(readme, /temporary.*diagnostics.*route/i);
+  assert.match(readme, /never expose.*API key/i);
+});
