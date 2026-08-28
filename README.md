@@ -36,6 +36,14 @@ Set `APOSTL_PULSE_ENDPOINT=https://ingest.apostl.dev` and
 default. Never expose the API key through client bundles, `NEXT_PUBLIC_*`, HTML,
 logs, or a public diagnostics response.
 
+Install SDK first:
+
+```sh
+npm i @apostl-dev/pulse-sdk
+```
+
+
+
 ### Node HTTP server
 
 ```ts
@@ -142,7 +150,7 @@ For a one-off test, a temporary protected diagnostics route may call
 route after validation; the counters are credential-free, but the endpoint is
 operational metadata and should not become a permanent public API.
 
-### Prove the first event
+## Prove the first event
 
 1. Start the production build with both server environment variables present.
 2. Request the real public `/llms.txt` route with the deployment's trusted
