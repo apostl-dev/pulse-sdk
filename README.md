@@ -159,8 +159,6 @@ operational metadata and should not become a permanent public API.
 4. Check `pulse.diagnostics()`: `configured=true`, `accepted>=1`, `sent>=1`,
    `droppedDelivery=0`, and `lastError=null`.
 
-`diagnostics()` returns counters only. It never returns the API key, captured
-headers, IP addresses, or request URLs.
 
 ## Troubleshooting
 
