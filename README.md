@@ -4,13 +4,13 @@
 
 # Apostl Pulse SDK
 
-Estimate AI agent visits and see which public website, docs, or API pages they use.
+Understand your AI agent visitors and turn them into your new power users.
 
-Pulse works as a middleware to track any agent-first endpoint:
+Pulse SDK works as a middleware to track agent-first endpoints and turn them into one funnel:
 - Markdown-supported pages
 - llms.txt and llms-full.txt
-- API endpoints for agents
-- app routes for agents
+- API endpoints for agents (MCP, x402, MPP)
+- app routes for built agents
 
 Pulse groups requests with the same project, trusted IP, and full User-Agent into one journey until a 30-minute inactivity window expires. Installations and origins connected to the same project stay in that journey.
 
