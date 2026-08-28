@@ -26,7 +26,7 @@ npm install @apostl-dev/pulse-sdk
 
 You need an API key. There are two options:
 - Approach for AI agents:: [Ask your AI agent](https://github.com/apostl-dev/pulse-sdk#setup-for-ai-agents) to get an API key.
-- Register using Google or Github on [Apostl.dev](https://platform.apostl.dev/?utm_source=github). platform and get API key by yourself.
+- Approach for humans: Register using Google or Github on [Apostl.dev](https://platform.apostl.dev/?utm_source=github). platform and get API key by yourself.
 
 ## Copy-paste quickstarts
 
