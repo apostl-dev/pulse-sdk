@@ -4,9 +4,9 @@
 
 # Apostl Pulse SDK
 
-Understand your AI agent visitors and turn them into your new power users.
+Understand AI agents visiting your website and turn them into your new power users.
 
-Pulse SDK works as a middleware to track agent-first endpoints and turn them into one funnel:
+Pulse SDK is best-in-class solution to track agent activity. It works as a middleware to track agent-first endpoints and turn them into one funnel:
 - Markdown-supported pages
 - llms.txt and llms-full.txt
 - API endpoints for agents (MCP, x402, MPP)
