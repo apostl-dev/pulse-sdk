@@ -12,12 +12,6 @@ Pulse SDK works as a middleware to track agent-first endpoints and turn them int
 - API endpoints for agents (MCP, x402, MPP)
 - app routes for built agents
 
-Pulse groups requests with the same project, trusted IP, and full User-Agent into one journey until a 30-minute inactivity window expires. Installations and origins connected to the same project stay in that journey.
-
-An exact `llms.txt` visit is immediate evidence. A generic non-browser client such as `curl` is also counted when it visits two distinct machine-readable surfaces within ten minutes—for example `openapi.json` and a Markdown page. This catches real tool-driven research even when the client does not announce an agent name.
-
-Before you instrument a site, use the [AI Agent Analytics guide](https://apostl.dev/blog/ai-agent-analytics) to separate request volume, page demand, task outcomes, and the limits of agent identity.
-
 ## One-line Install
 
 ```sh
