@@ -24,7 +24,7 @@ Before you instrument a site, use the [AI Agent Analytics guide](https://apostl.
 npm install @apostl-dev/pulse-sdk
 ```
 
-MIT-licensed [source code is on GitHub](https://github.com/apostl-dev/pulse-sdk).
+You need an API key. [Ask your AI agent](https://github.com/apostl-dev/pulse-sdk#setup-for-ai-agents) to get an API key, or get it by registering on [Apostl platform](https://platform.apostl.dev/?utm_source=github).
 
 ## Copy-paste quickstarts
 
@@ -186,3 +186,7 @@ Read the [full agent setup guide](https://apostl.dev/pulse.md) or the exact [Ope
 ## Support
 
 For setup help, message [@SwiftAdviser](https://t.me/SwiftAdviser) on Telegram.
+
+## License
+
+MIT-licensed [source code is on GitHub](https://github.com/apostl-dev/pulse-sdk).
